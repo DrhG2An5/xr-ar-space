@@ -1,0 +1,289 @@
+#include "app/App.h"
+#include "capture/WindowCapturer.h"
+#include "util/Log.h"
+#include "util/MathUtils.h"
+
+#include <glad/gl.h>
+#include <GLFW/glfw3.h>
+
+namespace xr {
+
+App::~App() {
+    shutdown();
+}
+
+bool App::init(const Config& config) {
+    m_config = config;
+
+    // Initialize GLFW
+    if (!glfwInit()) {
+        Log::error("Failed to initialize GLFW");
+        return false;
+    }
+
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_SAMPLES, 4);
+
+    m_window = glfwCreateWindow(
+        config.windowWidth, config.windowHeight,
+        config.windowTitle.c_str(), nullptr, nullptr);
+
+    if (!m_window) {
+        Log::error("Failed to create GLFW window");
+        glfwTerminate();
+        return false;
+    }
+
+    glfwMakeContextCurrent(m_window);
+    glfwSwapInterval(1); // VSync
+
+    // Store this pointer for callbacks
+    glfwSetWindowUserPointer(m_window, this);
+    glfwSetFramebufferSizeCallback(m_window, framebufferSizeCallback);
+    glfwSetKeyCallback(m_window, keyCallback);
+
+    // Initialize GLAD (GLAD2 API)
+    int version = gladLoadGL(glfwGetProcAddress);
+    if (!version) {
+        Log::error("Failed to initialize GLAD");
+        return false;
+    }
+    Log::info("OpenGL {}.{}", GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
+
+    // Initialize renderer
+    if (!m_renderer.init(config)) {
+        Log::error("Failed to initialize renderer");
+        return false;
+    }
+
+    // Create test content
+    createTestScreens();
+
+    // Enumerate and display available windows
+    refreshWindowList();
+
+    // Initialize head tracking (non-fatal if no device found)
+    m_headTracker = std::make_unique<HeadTracker>();
+    if (m_headTracker->start()) {
+        m_headTrackingEnabled = true;
+        Log::info("Head tracking enabled (press H to toggle)");
+    } else {
+        Log::info("No XREAL device — use arrow keys for camera (press H to retry)");
+    }
+
+    m_running = true;
+    Log::info("App initialized successfully");
+    return true;
+}
+
+void App::run() {
+    m_timer.tick(); // Reset delta
+
+    while (m_running && !glfwWindowShouldClose(m_window)) {
+        float dt = m_timer.tick();
+
+        glfwPollEvents();
+        processInput(dt);
+
+        // Update head tracking
+        if (m_headTrackingEnabled && m_headTracker) {
+            m_headTracker->update();
+
+            if (m_headTracker->isActive()) {
+                auto ori = m_headTracker->orientation();
+                m_renderer.camera().setYaw(ori.yaw);
+                m_renderer.camera().setPitch(ori.pitch);
+            } else {
+                // Device disconnected mid-session
+                m_headTrackingEnabled = false;
+                Log::warn("Head tracking lost — falling back to keyboard control");
+            }
+        }
+
+        // Update capture textures from background threads
+        updateCaptureTextures();
+
+        m_renderer.beginFrame();
+        m_renderer.render(m_screens);
+        m_renderer.endFrame();
+
+        glfwSwapBuffers(m_window);
+    }
+}
+
+void App::shutdown() {
+    // Stop head tracking first
+    if (m_headTracker) {
+        m_headTracker->stop();
+        m_headTracker.reset();
+    }
+
+    // Stop all capture threads before destroying GL resources
+    m_captureTextures.clear();
+
+    m_screens.clear();
+
+    if (m_window) {
+        glfwDestroyWindow(m_window);
+        m_window = nullptr;
+    }
+    glfwTerminate();
+
+    Log::info("App shut down");
+}
+
+void App::processInput(float dt) {
+    float rotSpeed = MathUtils::degToRad(m_config.rotationSpeed) * dt;
+
+    // Camera rotation with arrow keys
+    if (glfwGetKey(m_window, GLFW_KEY_LEFT) == GLFW_PRESS)
+        m_renderer.camera().rotate(-rotSpeed, 0.0f);
+    if (glfwGetKey(m_window, GLFW_KEY_RIGHT) == GLFW_PRESS)
+        m_renderer.camera().rotate(rotSpeed, 0.0f);
+    if (glfwGetKey(m_window, GLFW_KEY_UP) == GLFW_PRESS)
+        m_renderer.camera().rotate(0.0f, rotSpeed);
+    if (glfwGetKey(m_window, GLFW_KEY_DOWN) == GLFW_PRESS)
+        m_renderer.camera().rotate(0.0f, -rotSpeed);
+}
+
+void App::createTestScreens() {
+    const int screenCount = 3;
+
+    for (int i = 0; i < screenCount; ++i) {
+        auto screen = std::make_unique<VirtualScreen>();
+        screen->init(m_config.screenWidth, m_config.screenHeight);
+
+        // Create a checker texture for each (different sizes for visual variety)
+        int texW = 512 + i * 256;
+        int texH = static_cast<int>(texW * 9.0f / 16.0f);
+        GLuint tex = m_renderer.createCheckerTexture(texW, texH);
+        screen->setTexture(tex);
+
+        if (i == 1) screen->setSelected(true); // Middle screen selected by default
+
+        m_screens.push_back(std::move(screen));
+
+        // Create a corresponding CaptureTexture slot (initially no source)
+        m_captureTextures.push_back(std::make_unique<CaptureTexture>());
+    }
+
+    m_selectedScreen = 1;
+
+    // Apply layout to position screens
+    m_layoutManager.apply(m_screens, m_config, m_selectedScreen);
+
+    Log::info("Created {} screens (layout: {})", m_screens.size(), m_layoutManager.layoutName());
+}
+
+void App::refreshWindowList() {
+    m_windowList = WindowEnumerator::enumerate();
+    WindowEnumerator::printList(m_windowList);
+}
+
+void App::assignWindowToScreen(int windowIndex) {
+    if (windowIndex < 0 || windowIndex >= static_cast<int>(m_windowList.size())) {
+        Log::warn("Window index {} out of range (1-{})", windowIndex + 1, m_windowList.size());
+        return;
+    }
+    if (m_selectedScreen < 0 || m_selectedScreen >= static_cast<int>(m_screens.size())) {
+        return;
+    }
+
+    const auto& winInfo = m_windowList[windowIndex];
+    Log::info("Assigning '{}' to screen {}", winInfo.title, m_selectedScreen + 1);
+
+    // Create a new WindowCapturer for this HWND
+    auto capturer = std::make_unique<WindowCapturer>(winInfo.hwnd, m_config.captureFrameRate);
+    if (!capturer->start()) {
+        Log::error("Failed to start capture for '{}'", winInfo.title);
+        return;
+    }
+
+    // Set the source on the CaptureTexture for this screen
+    m_captureTextures[m_selectedScreen]->setSource(std::move(capturer));
+}
+
+void App::updateCaptureTextures() {
+    for (size_t i = 0; i < m_captureTextures.size() && i < m_screens.size(); ++i) {
+        GLuint tex = m_captureTextures[i]->update();
+        if (tex != 0) {
+            m_screens[i]->setTexture(tex);
+        }
+    }
+}
+
+void App::framebufferSizeCallback(GLFWwindow* window, int width, int height) {
+    auto* app = static_cast<App*>(glfwGetWindowUserPointer(window));
+    if (app && width > 0 && height > 0) {
+        app->m_renderer.onResize(width, height);
+    }
+}
+
+void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action, int /*mods*/) {
+    auto* app = static_cast<App*>(glfwGetWindowUserPointer(window));
+    if (!app) return;
+
+    if (action == GLFW_PRESS) {
+        switch (key) {
+            case GLFW_KEY_ESCAPE:
+                glfwSetWindowShouldClose(window, GLFW_TRUE);
+                break;
+            case GLFW_KEY_TAB:
+                // Cycle selected screen
+                if (!app->m_screens.empty()) {
+                    app->m_screens[app->m_selectedScreen]->setSelected(false);
+                    app->m_selectedScreen = (app->m_selectedScreen + 1) % static_cast<int>(app->m_screens.size());
+                    app->m_screens[app->m_selectedScreen]->setSelected(true);
+                    // Re-apply layout (Stack/Single need to update for new selection)
+                    app->m_layoutManager.apply(app->m_screens, app->m_config, app->m_selectedScreen);
+                }
+                break;
+            case GLFW_KEY_L:
+                // Cycle layout
+                app->m_layoutManager.cycleLayout();
+                app->m_layoutManager.apply(app->m_screens, app->m_config, app->m_selectedScreen);
+                Log::info("Layout: {}", app->m_layoutManager.layoutName());
+                break;
+            case GLFW_KEY_R:
+                // Reset camera
+                app->m_renderer.camera().setYaw(0.0f);
+                app->m_renderer.camera().setPitch(0.0f);
+                break;
+            case GLFW_KEY_W:
+                // Refresh window list
+                app->refreshWindowList();
+                break;
+            case GLFW_KEY_H:
+                // Toggle head tracking
+                if (app->m_headTrackingEnabled) {
+                    app->m_headTrackingEnabled = false;
+                    Log::info("Head tracking disabled — using keyboard control");
+                } else {
+                    // Try to (re)start if not active
+                    if (!app->m_headTracker) {
+                        app->m_headTracker = std::make_unique<HeadTracker>();
+                    }
+                    if (!app->m_headTracker->isActive()) {
+                        app->m_headTracker->stop();
+                        if (!app->m_headTracker->start()) {
+                            Log::warn("No XREAL device found — cannot enable head tracking");
+                            break;
+                        }
+                    }
+                    app->m_headTrackingEnabled = true;
+                    Log::info("Head tracking enabled");
+                }
+                break;
+            // Number keys 1-9: assign window to selected screen
+            case GLFW_KEY_1: case GLFW_KEY_2: case GLFW_KEY_3:
+            case GLFW_KEY_4: case GLFW_KEY_5: case GLFW_KEY_6:
+            case GLFW_KEY_7: case GLFW_KEY_8: case GLFW_KEY_9:
+                app->assignWindowToScreen(key - GLFW_KEY_1);
+                break;
+        }
+    }
+}
+
+} // namespace xr
