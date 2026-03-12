@@ -33,6 +33,9 @@ public:
     void setSelected(bool sel) { m_selected = sel; }
     bool selected() const { return m_selected; }
 
+    void setHovered(bool h) { m_hovered = h; }
+    bool hovered() const { return m_hovered; }
+
     void setOpacity(float opacity) { m_opacity = opacity; }
     float opacity() const { return m_opacity; }
 
@@ -57,6 +60,7 @@ private:
     glm::vec3 m_scale{1.0f};
 
     bool m_selected = false;
+    bool m_hovered = false;
     float m_opacity = 1.0f;
 };
 

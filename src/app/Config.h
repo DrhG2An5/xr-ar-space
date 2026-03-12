@@ -29,6 +29,11 @@ struct Config {
     float gridGap = 0.15f;          // Gap between screens in Grid layout
     float stackZOffset = 0.05f;     // Z-offset between stacked screens
 
+    // Interaction
+    float minDistance = 1.0f;
+    float maxDistance = 10.0f;
+    float scrollSpeed = 0.3f;
+
     // Capture
     int captureFrameRate = 30;
 

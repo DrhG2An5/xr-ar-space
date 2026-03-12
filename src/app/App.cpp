@@ -43,6 +43,9 @@ bool App::init(const Config& config) {
     glfwSetWindowUserPointer(m_window, this);
     glfwSetFramebufferSizeCallback(m_window, framebufferSizeCallback);
     glfwSetKeyCallback(m_window, keyCallback);
+    glfwSetMouseButtonCallback(m_window, mouseButtonCallback);
+    glfwSetCursorPosCallback(m_window, cursorPosCallback);
+    glfwSetScrollCallback(m_window, scrollCallback);
 
     // Initialize GLAD (GLAD2 API)
     int version = gladLoadGL(glfwGetProcAddress);
@@ -284,6 +287,121 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
                 break;
         }
     }
+}
+
+void App::updateHover(float mouseX, float mouseY) {
+    int width, height;
+    glfwGetFramebufferSize(m_window, &width, &height);
+    if (width <= 0 || height <= 0) return;
+
+    const auto& cam = m_renderer.camera();
+    glm::mat4 invView = glm::inverse(cam.viewMatrix());
+    glm::mat4 invProj = glm::inverse(cam.projectionMatrix());
+
+    Ray ray = Raycaster::screenToWorldRay(mouseX, mouseY, width, height, invView, invProj);
+    HitResult hit = Raycaster::pickScreen(ray, m_screens);
+
+    // Clear previous hover
+    if (m_hoveredScreen >= 0 && m_hoveredScreen < static_cast<int>(m_screens.size())) {
+        m_screens[m_hoveredScreen]->setHovered(false);
+    }
+
+    m_hoveredScreen = hit.hit ? hit.screenIndex : -1;
+
+    if (m_hoveredScreen >= 0) {
+        m_screens[m_hoveredScreen]->setHovered(true);
+    }
+}
+
+void App::mouseButtonCallback(GLFWwindow* window, int button, int action, int /*mods*/) {
+    auto* app = static_cast<App*>(glfwGetWindowUserPointer(window));
+    if (!app) return;
+
+    if (button == GLFW_MOUSE_BUTTON_LEFT) {
+        if (action == GLFW_PRESS) {
+            double mx, my;
+            glfwGetCursorPos(window, &mx, &my);
+            app->m_lastMousePos = glm::vec2(static_cast<float>(mx), static_cast<float>(my));
+
+            if (app->m_hoveredScreen >= 0) {
+                // Select the hovered screen
+                if (app->m_selectedScreen >= 0 &&
+                    app->m_selectedScreen < static_cast<int>(app->m_screens.size())) {
+                    app->m_screens[app->m_selectedScreen]->setSelected(false);
+                }
+                app->m_selectedScreen = app->m_hoveredScreen;
+                app->m_screens[app->m_selectedScreen]->setSelected(true);
+
+                // Begin drag — record screen depth for drag plane
+                const auto& screenPos = app->m_screens[app->m_selectedScreen]->position();
+                glm::vec3 camPos = app->m_renderer.camera().position();
+                app->m_dragDepth = glm::length(screenPos - camPos);
+                app->m_dragging = true;
+            }
+        } else if (action == GLFW_RELEASE) {
+            app->m_dragging = false;
+        }
+    }
+}
+
+void App::cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
+    auto* app = static_cast<App*>(glfwGetWindowUserPointer(window));
+    if (!app) return;
+
+    float mx = static_cast<float>(xpos);
+    float my = static_cast<float>(ypos);
+
+    if (app->m_dragging && app->m_selectedScreen >= 0 &&
+        app->m_selectedScreen < static_cast<int>(app->m_screens.size())) {
+        // Compute world-space positions for old and new mouse positions
+        int width, height;
+        glfwGetFramebufferSize(window, &width, &height);
+        if (width <= 0 || height <= 0) return;
+
+        const auto& cam = app->m_renderer.camera();
+        glm::mat4 invView = glm::inverse(cam.viewMatrix());
+        glm::mat4 invProj = glm::inverse(cam.projectionMatrix());
+
+        Ray rayOld = Raycaster::screenToWorldRay(
+            app->m_lastMousePos.x, app->m_lastMousePos.y, width, height, invView, invProj);
+        Ray rayNew = Raycaster::screenToWorldRay(mx, my, width, height, invView, invProj);
+
+        // Intersect both rays with the drag plane at m_dragDepth from camera
+        // Use a plane perpendicular to camera forward at the screen's depth
+        glm::vec3 camFwd = glm::normalize(glm::vec3(invView[2]));  // -Z in view space
+        camFwd = -camFwd; // Camera looks along -Z
+        glm::vec3 planePoint = cam.position() + camFwd * app->m_dragDepth;
+        float planeD = glm::dot(camFwd, planePoint);
+
+        auto intersectPlane = [&](const Ray& r) -> glm::vec3 {
+            float denom = glm::dot(camFwd, r.direction);
+            if (std::abs(denom) < 1e-6f) return planePoint;
+            float t = (planeD - glm::dot(camFwd, r.origin)) / denom;
+            return r.origin + t * r.direction;
+        };
+
+        glm::vec3 worldOld = intersectPlane(rayOld);
+        glm::vec3 worldNew = intersectPlane(rayNew);
+        glm::vec3 delta = worldNew - worldOld;
+
+        auto& screen = app->m_screens[app->m_selectedScreen];
+        screen->setPosition(screen->position() + delta);
+
+        app->m_lastMousePos = glm::vec2(mx, my);
+    } else {
+        app->updateHover(mx, my);
+    }
+}
+
+void App::scrollCallback(GLFWwindow* window, double /*xoffset*/, double yoffset) {
+    auto* app = static_cast<App*>(glfwGetWindowUserPointer(window));
+    if (!app) return;
+
+    app->m_config.screenDistance -= static_cast<float>(yoffset) * app->m_config.scrollSpeed;
+    app->m_config.screenDistance = glm::clamp(
+        app->m_config.screenDistance, app->m_config.minDistance, app->m_config.maxDistance);
+
+    app->m_layoutManager.apply(app->m_screens, app->m_config, app->m_selectedScreen);
 }
 
 } // namespace xr

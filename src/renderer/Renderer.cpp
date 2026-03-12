@@ -49,6 +49,8 @@ void Renderer::render(const std::vector<std::unique_ptr<VirtualScreen>>& screens
         m_screenShader.setBool("uSelected", screen->selected());
         m_screenShader.setVec4("uBorderColor", glm::vec4(0.2f, 0.6f, 1.0f, 1.0f));
         m_screenShader.setFloat("uBorderWidth", 0.01f);
+        m_screenShader.setBool("uHovered", screen->hovered());
+        m_screenShader.setVec4("uHoverColor", glm::vec4(1.0f, 1.0f, 1.0f, 0.5f));
         screen->draw();
     }
 }
