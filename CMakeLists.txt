@@ -55,22 +55,23 @@ add_executable(${PROJECT_NAME} ${APP_SOURCES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE src)
 target_compile_definitions(${PROJECT_NAME} PRIVATE WIN32_LEAN_AND_MEAN)
+
+# C++/WinRT support: required for Windows.Graphics.Capture API
+target_compile_options(${PROJECT_NAME} PRIVATE /await)
+
 target_link_libraries(${PROJECT_NAME} PRIVATE
     glad
     glfw
     glm::glm
     stb
     opengl32
-    # Windows system libs for future phases
     dwmapi
     d3d11
     dxgi
     hidapi::winapi
     setupapi
+    windowsapp  # C++/WinRT runtime
 )
-
-# Phase 4+ will need:
-# windowsapp  (C++/WinRT)
 
 # Copy shaders next to executable
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD

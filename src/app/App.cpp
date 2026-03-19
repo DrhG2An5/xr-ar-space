@@ -1,5 +1,6 @@
 #include "app/App.h"
 #include "capture/WindowCapturer.h"
+#include "capture/WinRTCapturer.h"
 #include "interaction/InputInjector.h"
 #include "util/Log.h"
 #include "util/MathUtils.h"
@@ -244,14 +245,31 @@ void App::assignWindowToScreen(int windowIndex) {
     const auto& winInfo = m_windowList[windowIndex];
     Log::info("Assigning '{}' to screen {}", winInfo.title, m_selectedScreen + 1);
 
-    // Create a new WindowCapturer for this HWND
-    auto capturer = std::make_unique<WindowCapturer>(winInfo.hwnd, m_config.captureFrameRate);
-    if (!capturer->start()) {
+    // Try WinRT capture first (better quality, supports hardware-accelerated apps)
+    // Fall back to GDI PrintWindow if WinRT is unavailable
+    std::unique_ptr<CaptureSource> capturer;
+
+    if (WinRTCapturer::isSupported()) {
+        auto winrt = std::make_unique<WinRTCapturer>(winInfo.hwnd, m_config.captureFrameRate);
+        if (winrt->start()) {
+            Log::info("Using WinRT capture for '{}'", winInfo.title);
+            capturer = std::move(winrt);
+        }
+    }
+
+    if (!capturer) {
+        auto gdi = std::make_unique<WindowCapturer>(winInfo.hwnd, m_config.captureFrameRate);
+        if (gdi->start()) {
+            Log::info("Using GDI capture for '{}'", winInfo.title);
+            capturer = std::move(gdi);
+        }
+    }
+
+    if (!capturer) {
         Log::error("Failed to start capture for '{}'", winInfo.title);
         return;
     }
 
-    // Set the source on the CaptureTexture for this screen
     m_captureTextures[m_selectedScreen]->setSource(std::move(capturer));
 }
 
@@ -478,15 +496,12 @@ void App::mouseButtonCallback(GLFWwindow* window, int button, int action, int mo
                 int idx = app->m_hoveredScreen;
                 if (idx >= 0 && idx < static_cast<int>(app->m_captureTextures.size())) {
                     auto* src = app->m_captureTextures[idx]->source();
-                    if (src) {
-                        auto* wcap = dynamic_cast<WindowCapturer*>(src);
-                        if (wcap && IsWindow(wcap->hwnd())) {
-                            HitResult hit = app->raycastAtMouse(mx, my);
-                            if (hit.hit) {
-                                InputInjector::sendLeftDown(wcap->hwnd(), hit.uv.x, hit.uv.y);
-                                app->m_clickingIntoWindow = true;
-                                app->m_clickTargetScreen = idx;
-                            }
+                    if (src && IsWindow(src->hwnd())) {
+                        HitResult hit = app->raycastAtMouse(mx, my);
+                        if (hit.hit) {
+                            InputInjector::sendLeftDown(src->hwnd(), hit.uv.x, hit.uv.y);
+                            app->m_clickingIntoWindow = true;
+                            app->m_clickTargetScreen = idx;
                         }
                     }
                 }
@@ -499,13 +514,10 @@ void App::mouseButtonCallback(GLFWwindow* window, int button, int action, int mo
             if (app->m_clickingIntoWindow && app->m_clickTargetScreen >= 0 &&
                 app->m_clickTargetScreen < static_cast<int>(app->m_captureTextures.size())) {
                 auto* src = app->m_captureTextures[app->m_clickTargetScreen]->source();
-                if (src) {
-                    auto* wcap = dynamic_cast<WindowCapturer*>(src);
-                    if (wcap && IsWindow(wcap->hwnd())) {
-                        HitResult hit = app->raycastAtMouse(mx, my);
-                        if (hit.hit) {
-                            InputInjector::sendLeftUp(wcap->hwnd(), hit.uv.x, hit.uv.y);
-                        }
+                if (src && IsWindow(src->hwnd())) {
+                    HitResult hit = app->raycastAtMouse(mx, my);
+                    if (hit.hit) {
+                        InputInjector::sendLeftUp(src->hwnd(), hit.uv.x, hit.uv.y);
                     }
                 }
             }
@@ -521,13 +533,10 @@ void App::mouseButtonCallback(GLFWwindow* window, int button, int action, int mo
             int idx = app->m_hoveredScreen;
             if (idx >= 0 && idx < static_cast<int>(app->m_captureTextures.size())) {
                 auto* src = app->m_captureTextures[idx]->source();
-                if (src) {
-                    auto* wcap = dynamic_cast<WindowCapturer*>(src);
-                    if (wcap && IsWindow(wcap->hwnd())) {
-                        HitResult hit = app->raycastAtMouse(mx, my);
-                        if (hit.hit) {
-                            InputInjector::sendRightClick(wcap->hwnd(), hit.uv.x, hit.uv.y);
-                        }
+                if (src && IsWindow(src->hwnd())) {
+                    HitResult hit = app->raycastAtMouse(mx, my);
+                    if (hit.hit) {
+                        InputInjector::sendRightClick(src->hwnd(), hit.uv.x, hit.uv.y);
                     }
                 }
             }
@@ -582,13 +591,10 @@ void App::cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
                app->m_clickTargetScreen < static_cast<int>(app->m_captureTextures.size())) {
         // Forward mouse move to captured window during click-hold
         auto* src = app->m_captureTextures[app->m_clickTargetScreen]->source();
-        if (src) {
-            auto* wcap = dynamic_cast<WindowCapturer*>(src);
-            if (wcap && IsWindow(wcap->hwnd())) {
-                HitResult hit = app->raycastAtMouse(mx, my);
-                if (hit.hit) {
-                    InputInjector::sendMouseMove(wcap->hwnd(), hit.uv.x, hit.uv.y);
-                }
+        if (src && IsWindow(src->hwnd())) {
+            HitResult hit = app->raycastAtMouse(mx, my);
+            if (hit.hit) {
+                InputInjector::sendMouseMove(src->hwnd(), hit.uv.x, hit.uv.y);
             }
         }
         app->updateHover(mx, my);
@@ -615,16 +621,13 @@ void App::scrollCallback(GLFWwindow* window, double /*xoffset*/, double yoffset)
                app->m_hoveredScreen < static_cast<int>(app->m_captureTextures.size())) {
         // Forward scroll to captured window
         auto* src = app->m_captureTextures[app->m_hoveredScreen]->source();
-        if (src) {
-            auto* wcap = dynamic_cast<WindowCapturer*>(src);
-            if (wcap && IsWindow(wcap->hwnd())) {
-                double mx, my;
-                glfwGetCursorPos(window, &mx, &my);
-                HitResult hit = app->raycastAtMouse(static_cast<float>(mx), static_cast<float>(my));
-                if (hit.hit) {
-                    InputInjector::sendScroll(wcap->hwnd(), hit.uv.x, hit.uv.y,
-                                             static_cast<float>(yoffset));
-                }
+        if (src && IsWindow(src->hwnd())) {
+            double mx, my;
+            glfwGetCursorPos(window, &mx, &my);
+            HitResult hit = app->raycastAtMouse(static_cast<float>(mx), static_cast<float>(my));
+            if (hit.hit) {
+                InputInjector::sendScroll(src->hwnd(), hit.uv.x, hit.uv.y,
+                                         static_cast<float>(yoffset));
             }
         }
     } else {
