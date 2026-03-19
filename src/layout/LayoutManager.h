@@ -14,10 +14,21 @@ namespace xr {
 
 enum class LayoutType { Arc, Grid, Stack, Single };
 
+struct ScreenTarget {
+    glm::vec3 position{0.0f};
+    glm::vec3 rotation{0.0f};
+    float opacity = 1.0f;
+};
+
 class LayoutManager {
 public:
     void setLayout(LayoutType type) { m_type = type; }
     LayoutType layoutType() const { return m_type; }
+
+    float transitionDuration() const { return m_transitionDuration; }
+    void setTransitionDuration(float seconds) { m_transitionDuration = seconds; }
+
+    bool isTransitioning() const { return m_transitioning; }
 
     const char* layoutName() const {
         switch (m_type) {
@@ -33,106 +44,166 @@ public:
         m_type = static_cast<LayoutType>((static_cast<int>(m_type) + 1) % 4);
     }
 
+    // Compute target positions for the current layout and start a transition.
     void apply(std::vector<std::unique_ptr<VirtualScreen>>& screens,
                const Config& config, int selectedScreen = 0) {
-        switch (m_type) {
-            case LayoutType::Arc:    applyArc(screens, config); break;
-            case LayoutType::Grid:   applyGrid(screens, config); break;
-            case LayoutType::Stack:  applyStack(screens, config, selectedScreen); break;
-            case LayoutType::Single: applySingle(screens, config, selectedScreen); break;
+        computeTargets(screens, config, selectedScreen);
+
+        // If screens don't have targets yet (first call), snap immediately
+        if (m_targets.size() != screens.size() || !m_initialized) {
+            snapToTargets(screens);
+            m_initialized = true;
+            return;
         }
+
+        // Start animated transition
+        m_transitionProgress = 0.0f;
+        m_transitioning = true;
+    }
+
+    // Call each frame to animate screens toward their target positions.
+    // Returns true if still animating.
+    bool update(std::vector<std::unique_ptr<VirtualScreen>>& screens, float dt) {
+        if (!m_transitioning || m_targets.size() != screens.size()) return false;
+
+        m_transitionProgress += dt / m_transitionDuration;
+        if (m_transitionProgress >= 1.0f) {
+            m_transitionProgress = 1.0f;
+            m_transitioning = false;
+        }
+
+        // Smooth ease-in-out curve
+        float t = smoothstep(m_transitionProgress);
+
+        for (size_t i = 0; i < screens.size(); ++i) {
+            auto& scr = screens[i];
+            const auto& target = m_targets[i];
+
+            glm::vec3 curPos = glm::mix(m_startPositions[i], target.position, t);
+            glm::vec3 curRot = glm::mix(m_startRotations[i], target.rotation, t);
+            float curOpacity = MathUtils::lerp(m_startOpacities[i], target.opacity, t);
+
+            scr->setPosition(curPos);
+            scr->setRotation(curRot);
+            scr->setOpacity(curOpacity);
+        }
+
+        return m_transitioning;
     }
 
 private:
-    void applyArc(std::vector<std::unique_ptr<VirtualScreen>>& screens,
-                  const Config& config) {
-        int count = static_cast<int>(screens.size());
-        if (count == 0) return;
+    static float smoothstep(float t) {
+        // Hermite interpolation: 3t^2 - 2t^3
+        return t * t * (3.0f - 2.0f * t);
+    }
 
-        float radius = config.screenDistance;
-        float spanRad = MathUtils::degToRad(config.arcSpanDeg);
+    void computeTargets(const std::vector<std::unique_ptr<VirtualScreen>>& screens,
+                        const Config& config, int selectedScreen) {
+        size_t count = screens.size();
+        m_targets.resize(count);
 
-        for (int i = 0; i < count; ++i) {
-            // Angle: centered around 0, spread across arcSpanDeg
-            float angle = 0.0f;
-            if (count > 1) {
-                float t = static_cast<float>(i) / (count - 1) - 0.5f; // [-0.5, 0.5]
-                angle = t * spanRad;
-            }
+        // Capture current positions as start points for animation
+        m_startPositions.resize(count);
+        m_startRotations.resize(count);
+        m_startOpacities.resize(count);
+        for (size_t i = 0; i < count; ++i) {
+            m_startPositions[i] = screens[i]->position();
+            m_startRotations[i] = screens[i]->rotation();
+            m_startOpacities[i] = screens[i]->opacity();
+        }
 
-            float x = radius * std::sin(angle);
-            float z = -radius * std::cos(angle);
-
-            screens[i]->setPosition({x, 0.0f, z});
-            screens[i]->setRotation({0.0f, -angle, 0.0f}); // Face toward origin
-            screens[i]->setOpacity(1.0f);
+        switch (m_type) {
+            case LayoutType::Arc:    computeArc(config, count); break;
+            case LayoutType::Grid:   computeGrid(config, count); break;
+            case LayoutType::Stack:  computeStack(config, count, selectedScreen); break;
+            case LayoutType::Single: computeSingle(config, count, selectedScreen); break;
         }
     }
 
-    void applyGrid(std::vector<std::unique_ptr<VirtualScreen>>& screens,
-                   const Config& config) {
-        int count = static_cast<int>(screens.size());
-        if (count == 0) return;
+    void snapToTargets(std::vector<std::unique_ptr<VirtualScreen>>& screens) {
+        for (size_t i = 0; i < screens.size() && i < m_targets.size(); ++i) {
+            screens[i]->setPosition(m_targets[i].position);
+            screens[i]->setRotation(m_targets[i].rotation);
+            screens[i]->setOpacity(m_targets[i].opacity);
+        }
+        m_transitioning = false;
+    }
 
+    void computeArc(const Config& config, size_t count) {
+        if (count == 0) return;
+        float radius = config.screenDistance;
+        float spanRad = MathUtils::degToRad(config.arcSpanDeg);
+
+        for (size_t i = 0; i < count; ++i) {
+            float angle = 0.0f;
+            if (count > 1) {
+                float t = static_cast<float>(i) / (count - 1) - 0.5f;
+                angle = t * spanRad;
+            }
+            float x = radius * std::sin(angle);
+            float z = -radius * std::cos(angle);
+
+            m_targets[i].position = {x, 0.0f, z};
+            m_targets[i].rotation = {0.0f, -angle, 0.0f};
+            m_targets[i].opacity = 1.0f;
+        }
+    }
+
+    void computeGrid(const Config& config, size_t count) {
+        if (count == 0) return;
         int cols = static_cast<int>(std::ceil(std::sqrt(static_cast<float>(count))));
-        int rows = static_cast<int>(std::ceil(static_cast<float>(count) / cols));
 
         float cellW = config.screenWidth + config.gridGap;
         float cellH = config.screenHeight + config.gridGap;
-
-        // Center the grid
         float totalW = cols * cellW - config.gridGap;
+        int rows = static_cast<int>(std::ceil(static_cast<float>(count) / cols));
         float totalH = rows * cellH - config.gridGap;
         float startX = -totalW * 0.5f + config.screenWidth * 0.5f;
         float startY = totalH * 0.5f - config.screenHeight * 0.5f;
 
-        for (int i = 0; i < count; ++i) {
-            int col = i % cols;
-            int row = i / cols;
-
+        for (size_t i = 0; i < count; ++i) {
+            int col = static_cast<int>(i) % cols;
+            int row = static_cast<int>(i) / cols;
             float x = startX + col * cellW;
             float y = startY - row * cellH;
 
-            screens[i]->setPosition({x, y, -config.screenDistance});
-            screens[i]->setRotation({0.0f, 0.0f, 0.0f});
-            screens[i]->setOpacity(1.0f);
+            m_targets[i].position = {x, y, -config.screenDistance};
+            m_targets[i].rotation = {0.0f, 0.0f, 0.0f};
+            m_targets[i].opacity = 1.0f;
         }
     }
 
-    void applyStack(std::vector<std::unique_ptr<VirtualScreen>>& screens,
-                    const Config& config, int selectedScreen) {
-        int count = static_cast<int>(screens.size());
+    void computeStack(const Config& config, size_t count, int selectedScreen) {
         if (count == 0) return;
+        for (size_t i = 0; i < count; ++i) {
+            int dist = std::abs(static_cast<int>(i) - selectedScreen);
+            float zOffset = (static_cast<int>(i) == selectedScreen) ? 0.0f : dist * config.stackZOffset;
 
-        for (int i = 0; i < count; ++i) {
-            float zOffset = 0.0f;
-            if (i == selectedScreen) {
-                zOffset = 0.0f; // Selected screen at front
-            } else {
-                // Non-selected screens behind, ordered by distance from selected
-                int dist = std::abs(i - selectedScreen);
-                zOffset = dist * config.stackZOffset;
-            }
-
-            screens[i]->setPosition({0.0f, 0.0f, -config.screenDistance + zOffset});
-            screens[i]->setRotation({0.0f, 0.0f, 0.0f});
-            screens[i]->setOpacity(i == selectedScreen ? 1.0f : 0.3f);
+            m_targets[i].position = {0.0f, 0.0f, -config.screenDistance + zOffset};
+            m_targets[i].rotation = {0.0f, 0.0f, 0.0f};
+            m_targets[i].opacity = (static_cast<int>(i) == selectedScreen) ? 1.0f : 0.3f;
         }
     }
 
-    void applySingle(std::vector<std::unique_ptr<VirtualScreen>>& screens,
-                     const Config& config, int selectedScreen) {
-        int count = static_cast<int>(screens.size());
+    void computeSingle(const Config& config, size_t count, int selectedScreen) {
         if (count == 0) return;
-
-        for (int i = 0; i < count; ++i) {
-            screens[i]->setPosition({0.0f, 0.0f, -config.screenDistance});
-            screens[i]->setRotation({0.0f, 0.0f, 0.0f});
-            screens[i]->setOpacity(i == selectedScreen ? 1.0f : 0.0f);
+        for (size_t i = 0; i < count; ++i) {
+            m_targets[i].position = {0.0f, 0.0f, -config.screenDistance};
+            m_targets[i].rotation = {0.0f, 0.0f, 0.0f};
+            m_targets[i].opacity = (static_cast<int>(i) == selectedScreen) ? 1.0f : 0.0f;
         }
     }
 
     LayoutType m_type = LayoutType::Arc;
+    float m_transitionDuration = 0.3f; // seconds
+    float m_transitionProgress = 0.0f;
+    bool m_transitioning = false;
+    bool m_initialized = false;
+
+    std::vector<ScreenTarget> m_targets;
+    std::vector<glm::vec3> m_startPositions;
+    std::vector<glm::vec3> m_startRotations;
+    std::vector<float> m_startOpacities;
 };
 
 } // namespace xr

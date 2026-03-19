@@ -134,6 +134,9 @@ void App::run() {
             }
         }
 
+        // Animate layout transitions
+        m_layoutManager.update(m_screens, dt);
+
         // Update capture textures; clean up dead captures
         updateCaptureTextures();
 
