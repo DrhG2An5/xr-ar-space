@@ -20,7 +20,8 @@ struct WindowInfo {
 class WindowEnumerator {
 public:
     // Enumerate all visible, non-minimized, titled top-level windows.
-    static std::vector<WindowInfo> enumerate();
+    // Optionally excludes a specific HWND (e.g., the app's own window).
+    static std::vector<WindowInfo> enumerate(HWND excludeHwnd = nullptr);
 
     // Print a numbered list to the console.
     static void printList(const std::vector<WindowInfo>& windows);

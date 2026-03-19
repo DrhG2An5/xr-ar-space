@@ -5,8 +5,17 @@
 
 namespace xr {
 
+struct EnumContext {
+    std::vector<WindowInfo>* list;
+    HWND excludeHwnd;
+};
+
 static BOOL CALLBACK enumCallback(HWND hwnd, LPARAM lParam) {
-    auto* list = reinterpret_cast<std::vector<WindowInfo>*>(lParam);
+    auto* ctx = reinterpret_cast<EnumContext*>(lParam);
+    auto* list = ctx->list;
+
+    // Skip excluded window (the app itself)
+    if (ctx->excludeHwnd && hwnd == ctx->excludeHwnd) return TRUE;
 
     // Skip invisible windows
     if (!IsWindowVisible(hwnd)) return TRUE;
@@ -45,9 +54,10 @@ static BOOL CALLBACK enumCallback(HWND hwnd, LPARAM lParam) {
     return TRUE;
 }
 
-std::vector<WindowInfo> WindowEnumerator::enumerate() {
+std::vector<WindowInfo> WindowEnumerator::enumerate(HWND excludeHwnd) {
     std::vector<WindowInfo> windows;
-    EnumWindows(enumCallback, reinterpret_cast<LPARAM>(&windows));
+    EnumContext ctx{&windows, excludeHwnd};
+    EnumWindows(enumCallback, reinterpret_cast<LPARAM>(&ctx));
     return windows;
 }
 

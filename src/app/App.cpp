@@ -1,11 +1,14 @@
 #include "app/App.h"
 #include "capture/WindowCapturer.h"
+#include "interaction/InputInjector.h"
 #include "util/Log.h"
 #include "util/MathUtils.h"
 #include "util/ConfigFile.h"
 
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
 
 namespace xr {
 
@@ -216,11 +219,17 @@ void App::createTestScreens() {
 }
 
 void App::refreshWindowList() {
-    m_windowList = WindowEnumerator::enumerate();
+    // Exclude our own window to prevent self-capture loop
+    HWND selfHwnd = glfwGetWin32Window(m_window);
+    m_windowList = WindowEnumerator::enumerate(selfHwnd);
     WindowEnumerator::printList(m_windowList);
 }
 
 void App::assignWindowToScreen(int windowIndex) {
+    // Auto-refresh window list to avoid stale entries
+    HWND selfHwnd = glfwGetWin32Window(m_window);
+    m_windowList = WindowEnumerator::enumerate(selfHwnd);
+
     if (windowIndex < 0 || windowIndex >= static_cast<int>(m_windowList.size())) {
         Log::warn("Window index {} out of range (1-{})", windowIndex + 1, m_windowList.size());
         return;
@@ -250,6 +259,45 @@ void App::updateCaptureTextures() {
             m_screens[i]->setTexture(tex);
         }
     }
+}
+
+HitResult App::raycastAtMouse(float mx, float my) {
+    int width, height;
+    glfwGetFramebufferSize(m_window, &width, &height);
+    if (width <= 0 || height <= 0) return {};
+
+    const auto& cam = m_renderer.camera();
+    glm::mat4 invView = glm::inverse(cam.viewMatrix());
+    glm::mat4 invProj = glm::inverse(cam.projectionMatrix());
+
+    Ray ray = Raycaster::screenToWorldRay(mx, my, width, height, invView, invProj);
+    return Raycaster::pickScreen(ray, m_screens);
+}
+
+void App::startDrag(float mx, float my) {
+    if (m_hoveredScreen < 0) return;
+
+    auto& screen = m_screens[m_hoveredScreen];
+
+    // Don't drag pinned screens
+    if (screen->pinned()) {
+        Log::info("Screen {} is pinned (press P to unpin)", m_hoveredScreen + 1);
+        return;
+    }
+
+    // Select the screen
+    if (m_selectedScreen >= 0 && m_selectedScreen < static_cast<int>(m_screens.size())) {
+        m_screens[m_selectedScreen]->setSelected(false);
+    }
+    m_selectedScreen = m_hoveredScreen;
+    m_screens[m_selectedScreen]->setSelected(true);
+
+    // Begin drag
+    const auto& screenPos = screen->position();
+    glm::vec3 camPos = m_renderer.camera().position();
+    m_dragDepth = glm::length(screenPos - camPos);
+    m_dragging = true;
+    m_lastMousePos = glm::vec2(mx, my);
 }
 
 void App::framebufferSizeCallback(GLFWwindow* window, int width, int height) {
@@ -343,6 +391,16 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
                     Log::info("No XREAL display detected");
                 }
                 break;
+            case GLFW_KEY_P:
+                // Toggle pin on selected screen
+                if (app->m_selectedScreen >= 0 &&
+                    app->m_selectedScreen < static_cast<int>(app->m_screens.size())) {
+                    auto& scr = app->m_screens[app->m_selectedScreen];
+                    scr->togglePinned();
+                    Log::info("Screen {} {}", app->m_selectedScreen + 1,
+                              scr->pinned() ? "pinned" : "unpinned");
+                }
+                break;
             // Number keys 1-9: assign window to selected screen
             case GLFW_KEY_1: case GLFW_KEY_2: case GLFW_KEY_3:
             case GLFW_KEY_4: case GLFW_KEY_5: case GLFW_KEY_6:
@@ -377,18 +435,35 @@ void App::updateHover(float mouseX, float mouseY) {
     }
 }
 
-void App::mouseButtonCallback(GLFWwindow* window, int button, int action, int /*mods*/) {
+void App::mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
     auto* app = static_cast<App*>(glfwGetWindowUserPointer(window));
     if (!app) return;
 
-    if (button == GLFW_MOUSE_BUTTON_LEFT) {
-        if (action == GLFW_PRESS) {
-            double mx, my;
-            glfwGetCursorPos(window, &mx, &my);
-            app->m_lastMousePos = glm::vec2(static_cast<float>(mx), static_cast<float>(my));
+    double dMx, dMy;
+    glfwGetCursorPos(window, &dMx, &dMy);
+    float mx = static_cast<float>(dMx);
+    float my = static_cast<float>(dMy);
 
-            if (app->m_hoveredScreen >= 0) {
-                // Select the hovered screen
+    // --- Middle mouse button: always drag ---
+    if (button == GLFW_MOUSE_BUTTON_MIDDLE) {
+        if (action == GLFW_PRESS) {
+            app->startDrag(mx, my);
+        } else if (action == GLFW_RELEASE) {
+            app->m_dragging = false;
+        }
+        return;
+    }
+
+    // --- Left mouse button ---
+    if (button == GLFW_MOUSE_BUTTON_LEFT) {
+        bool ctrlHeld = (mods & GLFW_MOD_CONTROL) != 0;
+
+        if (action == GLFW_PRESS) {
+            if (ctrlHeld) {
+                // Ctrl + Left-click: drag the frame
+                app->startDrag(mx, my);
+            } else if (app->m_hoveredScreen >= 0) {
+                // Plain left-click on a screen: select + inject click into captured window
                 if (app->m_selectedScreen >= 0 &&
                     app->m_selectedScreen < static_cast<int>(app->m_screens.size())) {
                     app->m_screens[app->m_selectedScreen]->setSelected(false);
@@ -396,14 +471,63 @@ void App::mouseButtonCallback(GLFWwindow* window, int button, int action, int /*
                 app->m_selectedScreen = app->m_hoveredScreen;
                 app->m_screens[app->m_selectedScreen]->setSelected(true);
 
-                // Begin drag — record screen depth for drag plane
-                const auto& screenPos = app->m_screens[app->m_selectedScreen]->position();
-                glm::vec3 camPos = app->m_renderer.camera().position();
-                app->m_dragDepth = glm::length(screenPos - camPos);
-                app->m_dragging = true;
+                // Click injection: forward to captured window
+                int idx = app->m_hoveredScreen;
+                if (idx >= 0 && idx < static_cast<int>(app->m_captureTextures.size())) {
+                    auto* src = app->m_captureTextures[idx]->source();
+                    if (src) {
+                        auto* wcap = dynamic_cast<WindowCapturer*>(src);
+                        if (wcap && IsWindow(wcap->hwnd())) {
+                            HitResult hit = app->raycastAtMouse(mx, my);
+                            if (hit.hit) {
+                                InputInjector::sendLeftDown(wcap->hwnd(), hit.uv.x, hit.uv.y);
+                                app->m_clickingIntoWindow = true;
+                                app->m_clickTargetScreen = idx;
+                            }
+                        }
+                    }
+                }
             }
         } else if (action == GLFW_RELEASE) {
+            // Release drag
             app->m_dragging = false;
+
+            // Release click injection
+            if (app->m_clickingIntoWindow && app->m_clickTargetScreen >= 0 &&
+                app->m_clickTargetScreen < static_cast<int>(app->m_captureTextures.size())) {
+                auto* src = app->m_captureTextures[app->m_clickTargetScreen]->source();
+                if (src) {
+                    auto* wcap = dynamic_cast<WindowCapturer*>(src);
+                    if (wcap && IsWindow(wcap->hwnd())) {
+                        HitResult hit = app->raycastAtMouse(mx, my);
+                        if (hit.hit) {
+                            InputInjector::sendLeftUp(wcap->hwnd(), hit.uv.x, hit.uv.y);
+                        }
+                    }
+                }
+            }
+            app->m_clickingIntoWindow = false;
+            app->m_clickTargetScreen = -1;
+        }
+        return;
+    }
+
+    // --- Right mouse button: right-click injection ---
+    if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+        if (action == GLFW_PRESS && app->m_hoveredScreen >= 0) {
+            int idx = app->m_hoveredScreen;
+            if (idx >= 0 && idx < static_cast<int>(app->m_captureTextures.size())) {
+                auto* src = app->m_captureTextures[idx]->source();
+                if (src) {
+                    auto* wcap = dynamic_cast<WindowCapturer*>(src);
+                    if (wcap && IsWindow(wcap->hwnd())) {
+                        HitResult hit = app->raycastAtMouse(mx, my);
+                        if (hit.hit) {
+                            InputInjector::sendRightClick(wcap->hwnd(), hit.uv.x, hit.uv.y);
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -431,9 +555,8 @@ void App::cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
         Ray rayNew = Raycaster::screenToWorldRay(mx, my, width, height, invView, invProj);
 
         // Intersect both rays with the drag plane at m_dragDepth from camera
-        // Use a plane perpendicular to camera forward at the screen's depth
-        glm::vec3 camFwd = glm::normalize(glm::vec3(invView[2]));  // -Z in view space
-        camFwd = -camFwd; // Camera looks along -Z
+        glm::vec3 camFwd = glm::normalize(glm::vec3(invView[2]));
+        camFwd = -camFwd;
         glm::vec3 planePoint = cam.position() + camFwd * app->m_dragDepth;
         float planeD = glm::dot(camFwd, planePoint);
 
@@ -452,6 +575,20 @@ void App::cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
         screen->setPosition(screen->position() + delta);
 
         app->m_lastMousePos = glm::vec2(mx, my);
+    } else if (app->m_clickingIntoWindow && app->m_clickTargetScreen >= 0 &&
+               app->m_clickTargetScreen < static_cast<int>(app->m_captureTextures.size())) {
+        // Forward mouse move to captured window during click-hold
+        auto* src = app->m_captureTextures[app->m_clickTargetScreen]->source();
+        if (src) {
+            auto* wcap = dynamic_cast<WindowCapturer*>(src);
+            if (wcap && IsWindow(wcap->hwnd())) {
+                HitResult hit = app->raycastAtMouse(mx, my);
+                if (hit.hit) {
+                    InputInjector::sendMouseMove(wcap->hwnd(), hit.uv.x, hit.uv.y);
+                }
+            }
+        }
+        app->updateHover(mx, my);
     } else {
         app->updateHover(mx, my);
     }
@@ -461,11 +598,39 @@ void App::scrollCallback(GLFWwindow* window, double /*xoffset*/, double yoffset)
     auto* app = static_cast<App*>(glfwGetWindowUserPointer(window));
     if (!app) return;
 
-    app->m_config.screenDistance -= static_cast<float>(yoffset) * app->m_config.scrollSpeed;
-    app->m_config.screenDistance = glm::clamp(
-        app->m_config.screenDistance, app->m_config.minDistance, app->m_config.maxDistance);
+    bool ctrlHeld = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
+                    glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
 
-    app->m_layoutManager.apply(app->m_screens, app->m_config, app->m_selectedScreen);
+    // Ctrl + Scroll: zoom (change screen distance)
+    // Plain Scroll over a captured window: forward scroll to the window
+    if (ctrlHeld) {
+        app->m_config.screenDistance -= static_cast<float>(yoffset) * app->m_config.scrollSpeed;
+        app->m_config.screenDistance = glm::clamp(
+            app->m_config.screenDistance, app->m_config.minDistance, app->m_config.maxDistance);
+        app->m_layoutManager.apply(app->m_screens, app->m_config, app->m_selectedScreen);
+    } else if (app->m_hoveredScreen >= 0 &&
+               app->m_hoveredScreen < static_cast<int>(app->m_captureTextures.size())) {
+        // Forward scroll to captured window
+        auto* src = app->m_captureTextures[app->m_hoveredScreen]->source();
+        if (src) {
+            auto* wcap = dynamic_cast<WindowCapturer*>(src);
+            if (wcap && IsWindow(wcap->hwnd())) {
+                double mx, my;
+                glfwGetCursorPos(window, &mx, &my);
+                HitResult hit = app->raycastAtMouse(static_cast<float>(mx), static_cast<float>(my));
+                if (hit.hit) {
+                    InputInjector::sendScroll(wcap->hwnd(), hit.uv.x, hit.uv.y,
+                                             static_cast<float>(yoffset));
+                }
+            }
+        }
+    } else {
+        // No captured window hovered: zoom as before
+        app->m_config.screenDistance -= static_cast<float>(yoffset) * app->m_config.scrollSpeed;
+        app->m_config.screenDistance = glm::clamp(
+            app->m_config.screenDistance, app->m_config.minDistance, app->m_config.maxDistance);
+        app->m_layoutManager.apply(app->m_screens, app->m_config, app->m_selectedScreen);
+    }
 }
 
 } // namespace xr

@@ -45,6 +45,8 @@ private:
     static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
     static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
     static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
+    void startDrag(float mx, float my);
+    HitResult raycastAtMouse(float mx, float my);
     static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos);
     static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset);
 
@@ -61,6 +63,10 @@ private:
     bool m_dragging = false;
     glm::vec2 m_lastMousePos{0.0f};
     float m_dragDepth = 0.0f;
+
+    // Click injection state
+    bool m_clickingIntoWindow = false;  // Left-click held on a captured window
+    int m_clickTargetScreen = -1;       // Which screen received the click
 
     // Capture state
     std::vector<std::unique_ptr<CaptureTexture>> m_captureTextures;
