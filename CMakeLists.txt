@@ -66,6 +66,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     d3d11
     dxgi
     hidapi::winapi
+    setupapi
 )
 
 # Phase 4+ will need:

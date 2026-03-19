@@ -70,8 +70,14 @@ build\Release\xr_ar_space.exe
 | Arrow Left/Right | Rotate camera yaw |
 | Arrow Up/Down | Rotate camera pitch |
 | Tab | Cycle selected screen |
-| 1-4 | Switch layout (Arc/Grid/Stack/Single) |
+| L | Cycle layout (Arc/Grid/Stack/Single) |
 | R | Reset camera orientation |
+| W | Refresh window list |
+| H | Toggle head tracking |
+| F | Toggle borderless fullscreen on XREAL (or primary) |
+| D | Refresh display list |
+| S | Save current config |
+| 1-9 | Assign window to selected screen |
 | Escape | Exit |
 
 ### Mouse
@@ -124,11 +130,14 @@ xr_ar_space/
     │   └── LayoutManager.h       # Arc/Grid/Stack/Single layout computation
     ├── interaction/
     │   └── Raycaster.h           # Mouse ray-quad intersection, screen picking
-    ├── display/                  # (not yet implemented)
+    ├── display/
+    │   ├── DisplayDetector.h/cpp # Monitor enumeration, XREAL EDID matching
+    │   └── WindowPositioner.h/cpp # Borderless fullscreen positioning
     └── util/
         ├── Log.h                 # Timestamped console logging
         ├── Timer.h               # Frame delta timing
-        └── MathUtils.h           # deg/rad, lerp, clamp
+        ├── MathUtils.h           # deg/rad, lerp, clamp
+        └── ConfigFile.h/cpp      # JSON config load/save
 ```
 
 ## Implementation Status
@@ -172,12 +181,12 @@ xr_ar_space/
 - [x] Scroll wheel zoom, double-click zoom
 - [x] Visual feedback: hover highlight in shader
 
-### Phase 6: Display Detection + Polish — NOT STARTED
+### Phase 6: Display Detection + Polish — COMPLETE
 
-- [ ] `DisplayDetector`: EnumDisplayDevices + EDID matching for XREAL
-- [ ] `WindowPositioner`: Borderless fullscreen on XREAL display
-- [ ] Config file (JSON), persistent settings
-- [ ] Error handling (device disconnect, window close recovery)
+- [x] `DisplayDetector`: EnumDisplayDevices + EDID matching for XREAL (name, VID_3318)
+- [x] `WindowPositioner`: Borderless fullscreen on XREAL display with windowed restore
+- [x] `ConfigFile`: JSON config load/save, persists all settings on exit
+- [x] Error recovery: auto-retry head tracking (5s interval), dead capture cleanup
 - [ ] Click injection (forward mouse events to captured windows)
 
 ## Architecture
@@ -206,12 +215,11 @@ ImuReader thread -> HeadTracker -> SensorFusion -> Camera orientation
 
 ## Next Steps
 
-1. **Phase 6: Display Detection** — auto-detect XREAL glasses via EDID, fullscreen output
-2. **Click injection** — forward mouse clicks to captured windows for full interactivity
-3. **WinRT capture upgrade** — zero-copy GPU path for lower latency
-4. **Animated layout transitions** — smooth lerp/slerp when switching layouts
-5. **Config persistence** — JSON settings file for user preferences
-6. **Tests** — unit tests for sensor fusion, layouts, raycasting
+1. **Click injection** — forward mouse clicks to captured windows for full interactivity
+2. **WinRT capture upgrade** — zero-copy GPU path via `WGL_NV_DX_interop2` for lower latency
+3. **Animated layout transitions** — smooth lerp/slerp when switching layouts (~300ms)
+4. **Tests** — unit tests for sensor fusion, layouts, raycasting
+5. **6DoF tracking** — positional tracking beyond 3DoF rotation
 
 ## References
 

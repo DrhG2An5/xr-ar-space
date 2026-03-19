@@ -2,6 +2,7 @@
 #include "capture/WindowCapturer.h"
 #include "util/Log.h"
 #include "util/MathUtils.h"
+#include "util/ConfigFile.h"
 
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
@@ -76,6 +77,18 @@ bool App::init(const Config& config) {
         Log::info("No XREAL device — use arrow keys for camera (press H to retry)");
     }
 
+    // Detect displays and look for XREAL glasses
+    m_displays = DisplayDetector::enumerate();
+    DisplayDetector::printList(m_displays);
+    m_xrealDisplay = DisplayDetector::findXreal();
+    if (m_xrealDisplay) {
+        Log::info("XREAL display found: {} ({}x{}) — press F to go fullscreen",
+                  m_xrealDisplay->monitorName.empty() ? m_xrealDisplay->deviceName : m_xrealDisplay->monitorName,
+                  m_xrealDisplay->width, m_xrealDisplay->height);
+    } else {
+        Log::info("No XREAL display detected — press D to refresh displays, F for fullscreen on primary");
+    }
+
     m_running = true;
     Log::info("App initialized successfully");
     return true;
@@ -98,15 +111,37 @@ void App::run() {
                 auto ori = m_headTracker->orientation();
                 m_renderer.camera().setYaw(ori.yaw);
                 m_renderer.camera().setPitch(ori.pitch);
+                m_headTrackingRetryTimer = 0.0f;
             } else {
                 // Device disconnected mid-session
                 m_headTrackingEnabled = false;
-                Log::warn("Head tracking lost — falling back to keyboard control");
+                Log::warn("Head tracking lost — will retry in {}s (press H to retry now)",
+                          static_cast<int>(kHeadTrackingRetryInterval));
+            }
+        } else if (!m_headTrackingEnabled && m_headTracker) {
+            // Periodic auto-retry for head tracking reconnection
+            m_headTrackingRetryTimer += dt;
+            if (m_headTrackingRetryTimer >= kHeadTrackingRetryInterval) {
+                m_headTrackingRetryTimer = 0.0f;
+                m_headTracker->stop();
+                if (m_headTracker->start()) {
+                    m_headTrackingEnabled = true;
+                    Log::info("Head tracking reconnected");
+                }
             }
         }
 
-        // Update capture textures from background threads
+        // Update capture textures; clean up dead captures
         updateCaptureTextures();
+
+        // Check for dead capture sources (window was closed)
+        for (size_t i = 0; i < m_captureTextures.size(); ++i) {
+            auto* src = m_captureTextures[i]->source();
+            if (src && !src->isRunning()) {
+                Log::warn("Capture source for screen {} stopped (window closed?)", i + 1);
+                m_captureTextures[i]->setSource(nullptr);
+            }
+        }
 
         m_renderer.beginFrame();
         m_renderer.render(m_screens);
@@ -277,6 +312,35 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
                     }
                     app->m_headTrackingEnabled = true;
                     Log::info("Head tracking enabled");
+                }
+                break;
+            case GLFW_KEY_F:
+                // Toggle fullscreen on XREAL display (or primary if no XREAL)
+                if (app->m_xrealDisplay) {
+                    WindowPositioner::toggle(window, *app->m_xrealDisplay);
+                } else if (!app->m_displays.empty()) {
+                    // Fall back to primary display
+                    for (const auto& d : app->m_displays) {
+                        if (d.isPrimary) {
+                            WindowPositioner::toggle(window, d);
+                            break;
+                        }
+                    }
+                }
+                break;
+            case GLFW_KEY_S:
+                // Save current config
+                ConfigFile::save(app->m_config);
+                break;
+            case GLFW_KEY_D:
+                // Refresh display list
+                app->m_displays = DisplayDetector::enumerate();
+                DisplayDetector::printList(app->m_displays);
+                app->m_xrealDisplay = DisplayDetector::findXreal();
+                if (app->m_xrealDisplay) {
+                    Log::info("XREAL display found: {}", app->m_xrealDisplay->monitorName);
+                } else {
+                    Log::info("No XREAL display detected");
                 }
                 break;
             // Number keys 1-9: assign window to selected screen
