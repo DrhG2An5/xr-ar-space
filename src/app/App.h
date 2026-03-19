@@ -32,6 +32,8 @@ public:
     void run();
     void shutdown();
 
+    const Config& config() const { return m_config; }
+
 private:
     void processInput(float dt);
     void createTestScreens();

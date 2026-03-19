@@ -2,6 +2,7 @@
 #include "capture/WindowCapturer.h"
 #include "util/Log.h"
 #include "util/MathUtils.h"
+#include "util/ConfigFile.h"
 
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
@@ -304,6 +305,10 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
                         }
                     }
                 }
+                break;
+            case GLFW_KEY_S:
+                // Save current config
+                ConfigFile::save(app->m_config);
                 break;
             case GLFW_KEY_D:
                 // Refresh display list

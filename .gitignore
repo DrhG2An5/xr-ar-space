@@ -13,6 +13,9 @@ out/
 # Claude Code
 .claude/
 
+# Runtime config (user-specific settings)
+config.json
+
 # OS
 Thumbs.db
 Desktop.ini
