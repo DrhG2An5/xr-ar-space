@@ -76,6 +76,18 @@ bool App::init(const Config& config) {
         Log::info("No XREAL device — use arrow keys for camera (press H to retry)");
     }
 
+    // Detect displays and look for XREAL glasses
+    m_displays = DisplayDetector::enumerate();
+    DisplayDetector::printList(m_displays);
+    m_xrealDisplay = DisplayDetector::findXreal();
+    if (m_xrealDisplay) {
+        Log::info("XREAL display found: {} ({}x{}) — press F to go fullscreen",
+                  m_xrealDisplay->monitorName.empty() ? m_xrealDisplay->deviceName : m_xrealDisplay->monitorName,
+                  m_xrealDisplay->width, m_xrealDisplay->height);
+    } else {
+        Log::info("No XREAL display detected — press D to refresh displays, F for fullscreen on primary");
+    }
+
     m_running = true;
     Log::info("App initialized successfully");
     return true;
@@ -277,6 +289,31 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
                     }
                     app->m_headTrackingEnabled = true;
                     Log::info("Head tracking enabled");
+                }
+                break;
+            case GLFW_KEY_F:
+                // Toggle fullscreen on XREAL display (or primary if no XREAL)
+                if (app->m_xrealDisplay) {
+                    WindowPositioner::toggle(window, *app->m_xrealDisplay);
+                } else if (!app->m_displays.empty()) {
+                    // Fall back to primary display
+                    for (const auto& d : app->m_displays) {
+                        if (d.isPrimary) {
+                            WindowPositioner::toggle(window, d);
+                            break;
+                        }
+                    }
+                }
+                break;
+            case GLFW_KEY_D:
+                // Refresh display list
+                app->m_displays = DisplayDetector::enumerate();
+                DisplayDetector::printList(app->m_displays);
+                app->m_xrealDisplay = DisplayDetector::findXreal();
+                if (app->m_xrealDisplay) {
+                    Log::info("XREAL display found: {}", app->m_xrealDisplay->monitorName);
+                } else {
+                    Log::info("No XREAL display detected");
                 }
                 break;
             // Number keys 1-9: assign window to selected screen

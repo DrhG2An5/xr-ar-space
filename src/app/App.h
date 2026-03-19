@@ -8,12 +8,15 @@
 #include "tracking/HeadTracker.h"
 #include "layout/LayoutManager.h"
 #include "interaction/Raycaster.h"
+#include "display/DisplayDetector.h"
+#include "display/WindowPositioner.h"
 #include "util/Timer.h"
 
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <vector>
 #include <memory>
+#include <optional>
 
 namespace xr {
 
@@ -67,6 +70,10 @@ private:
 
     // Layout
     LayoutManager m_layoutManager;
+
+    // Display detection
+    std::vector<DisplayInfo> m_displays;
+    std::optional<DisplayInfo> m_xrealDisplay;
 
     bool m_running = false;
 };
