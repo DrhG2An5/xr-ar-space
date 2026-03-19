@@ -111,15 +111,37 @@ void App::run() {
                 auto ori = m_headTracker->orientation();
                 m_renderer.camera().setYaw(ori.yaw);
                 m_renderer.camera().setPitch(ori.pitch);
+                m_headTrackingRetryTimer = 0.0f;
             } else {
                 // Device disconnected mid-session
                 m_headTrackingEnabled = false;
-                Log::warn("Head tracking lost — falling back to keyboard control");
+                Log::warn("Head tracking lost — will retry in {}s (press H to retry now)",
+                          static_cast<int>(kHeadTrackingRetryInterval));
+            }
+        } else if (!m_headTrackingEnabled && m_headTracker) {
+            // Periodic auto-retry for head tracking reconnection
+            m_headTrackingRetryTimer += dt;
+            if (m_headTrackingRetryTimer >= kHeadTrackingRetryInterval) {
+                m_headTrackingRetryTimer = 0.0f;
+                m_headTracker->stop();
+                if (m_headTracker->start()) {
+                    m_headTrackingEnabled = true;
+                    Log::info("Head tracking reconnected");
+                }
             }
         }
 
-        // Update capture textures from background threads
+        // Update capture textures; clean up dead captures
         updateCaptureTextures();
+
+        // Check for dead capture sources (window was closed)
+        for (size_t i = 0; i < m_captureTextures.size(); ++i) {
+            auto* src = m_captureTextures[i]->source();
+            if (src && !src->isRunning()) {
+                Log::warn("Capture source for screen {} stopped (window closed?)", i + 1);
+                m_captureTextures[i]->setSource(nullptr);
+            }
+        }
 
         m_renderer.beginFrame();
         m_renderer.render(m_screens);

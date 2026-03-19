@@ -77,6 +77,10 @@ private:
     std::vector<DisplayInfo> m_displays;
     std::optional<DisplayInfo> m_xrealDisplay;
 
+    // Recovery
+    float m_headTrackingRetryTimer = 0.0f;
+    static constexpr float kHeadTrackingRetryInterval = 5.0f; // seconds
+
     bool m_running = false;
 };
 
