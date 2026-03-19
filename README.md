@@ -9,7 +9,7 @@ Rebuilt from an Electron/TypeScript prototype for lower latency, direct USB HID 
 | Component | Technology |
 |-----------|-----------|
 | Graphics | OpenGL 4.6 Core (GLFW + GLAD + GLM) |
-| Window Capture | Windows.Graphics.Capture (WinRT) + D3D11-to-OpenGL interop |
+| Window Capture | GDI PrintWindow (30 FPS), with planned WinRT upgrade |
 | USB HID | hidapi (winapi backend) |
 | Build | CMake 3.24+ with FetchContent |
 | Language | C++20, MSVC |
@@ -20,6 +20,7 @@ Rebuilt from an Electron/TypeScript prototype for lower latency, direct USB HID 
 - **CMake 3.24+**
 - **Visual Studio 2022 Build Tools** (MSVC C++ toolchain)
 - **GPU with OpenGL 4.6 support** (any modern NVIDIA/AMD/Intel)
+- **XREAL AR glasses** (Air, Air 2, Air 2 Pro, or Ultra) — required for head tracking
 
 ### Install Build Tools (Chocolatey)
 
@@ -39,7 +40,7 @@ winget install Kitware.CMake
 winget install Microsoft.VisualStudio.2022.BuildTools --override "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --passive"
 ```
 
-## Build
+## Build & Run
 
 ```bash
 # Configure (downloads GLFW, GLM, hidapi automatically via FetchContent)
@@ -60,15 +61,27 @@ cmake --build build --config Release
 build\Release\xr_ar_space.exe
 ```
 
-## Controls (Phase 1)
+## Controls
+
+### Keyboard
 
 | Key | Action |
 |-----|--------|
 | Arrow Left/Right | Rotate camera yaw |
 | Arrow Up/Down | Rotate camera pitch |
 | Tab | Cycle selected screen |
+| 1-4 | Switch layout (Arc/Grid/Stack/Single) |
 | R | Reset camera orientation |
 | Escape | Exit |
+
+### Mouse
+
+| Input | Action |
+|-------|--------|
+| Hover | Highlight screen under cursor |
+| Click + Drag | Move selected screen |
+| Scroll Wheel | Zoom in/out |
+| Double-click | Zoom to screen |
 
 ## Project Structure
 
@@ -76,39 +89,51 @@ build\Release\xr_ar_space.exe
 xr_ar_space/
 ├── CMakeLists.txt
 ├── extern/
-│   ├── glad/              # Vendored OpenGL 4.6 Core loader (GLAD2)
+│   ├── glad/                    # Vendored OpenGL 4.6 Core loader (GLAD2)
 │   │   ├── include/glad/gl.h
 │   │   ├── include/KHR/khrplatform.h
 │   │   └── src/gl.c
-│   └── stb/               # stb_image.h for test textures
+│   └── stb/                     # stb_image.h for test textures
 ├── shaders/
-│   ├── screen.vert/frag   # Virtual screen rendering + selection border
-│   └── cursor.vert/frag   # Cursor overlay (future use)
+│   ├── screen.vert/frag         # Virtual screen rendering + hover highlight
+│   └── cursor.vert/frag         # Cursor overlay
+├── tests/                       # (empty, tests not yet implemented)
 └── src/
-    ├── main.cpp            # Entry point
+    ├── main.cpp                  # Entry point
     ├── app/
-    │   ├── App.h/cpp       # GLFW window, main loop, input dispatch
-    │   └── Config.h        # Runtime configuration constants
+    │   ├── App.h/cpp             # GLFW window, main loop, input dispatch
+    │   └── Config.h              # Runtime configuration constants
     ├── renderer/
-    │   ├── Shader.h/cpp    # GLSL shader compile/link, uniform setters
-    │   ├── Camera.h/cpp    # Perspective projection, yaw/pitch rotation
-    │   ├── VirtualScreen.h/cpp  # Textured quad (VAO/VBO/EBO)
-    │   └── Renderer.h/cpp  # GL state management, render pipeline
-    ├── capture/            # Phase 2: WinRT window capture
-    ├── hid/                # Phase 3: XREAL USB HID communication
-    ├── tracking/           # Phase 3: IMU sensor fusion
-    ├── layout/             # Phase 4: Arc/Grid/Stack/Single layouts
-    ├── interaction/        # Phase 5: Raycasting, drag, zoom
-    ├── display/            # Phase 6: XREAL display detection
+    │   ├── Shader.h/cpp          # GLSL shader compile/link, uniform setters
+    │   ├── Camera.h/cpp          # Perspective projection, yaw/pitch rotation
+    │   ├── VirtualScreen.h/cpp   # Textured quad (VAO/VBO/EBO)
+    │   └── Renderer.h/cpp        # GL state management, render pipeline
+    ├── capture/
+    │   ├── CaptureSource.h       # Capture source descriptor
+    │   ├── CaptureTexture.h/cpp  # GPU texture from captured frames
+    │   ├── FrameBuffer.h         # Frame buffering
+    │   ├── WindowCapturer.h/cpp  # GDI PrintWindow capture (30 FPS)
+    │   └── WindowEnumerator.h/cpp # EnumWindows window listing
+    ├── hid/
+    │   ├── ImuProtocol.h         # XREAL constants, packet format, CRC
+    │   └── ImuReader.h/cpp       # Background thread, hidapi read loop, parsing
+    ├── tracking/
+    │   ├── SensorFusion.h        # Complementary filter (alpha=0.98)
+    │   └── HeadTracker.h/cpp     # Thread-safe 3DoF orientation
+    ├── layout/
+    │   └── LayoutManager.h       # Arc/Grid/Stack/Single layout computation
+    ├── interaction/
+    │   └── Raycaster.h           # Mouse ray-quad intersection, screen picking
+    ├── display/                  # (not yet implemented)
     └── util/
-        ├── Log.h           # Timestamped console logging
-        ├── Timer.h         # Frame delta timing
-        └── MathUtils.h     # deg/rad, lerp, clamp
+        ├── Log.h                 # Timestamped console logging
+        ├── Timer.h               # Frame delta timing
+        └── MathUtils.h           # deg/rad, lerp, clamp
 ```
 
 ## Implementation Status
 
-### Phase 1: Scaffold + Render Loop — CODE COMPLETE, awaiting build verification
+### Phase 1: Scaffold + Render Loop — COMPLETE
 
 - [x] CMake project with GLFW, GLAD, GLM via FetchContent
 - [x] `App` class with GLFW window, main loop, input handling
@@ -118,53 +143,58 @@ xr_ar_space/
 - [x] `VirtualScreen` textured quad (VAO/VBO/EBO)
 - [x] GLSL shaders (screen + cursor)
 - [x] Test scene: 3 checker-textured floating rectangles in an arc
-- [ ] **Build verification** (blocked on CMake + MSVC installation)
+- [x] Build verified — executable runs
 
-### Phase 2: Window Capture — not started
+### Phase 2: Window Capture — COMPLETE
 
-- [ ] `DxGlInterop`: D3D11 device + `WGL_NV_DX_interop2` for zero-copy GPU texture sharing
-- [ ] `CaptureSession`: WinRT GraphicsCaptureItem, FramePool, FrameArrived callback
-- [ ] `CaptureManager`: Window enumeration (EnumWindows), session lifecycle
-- [ ] CPU fallback path (Map + glTexSubImage2D) if WGL interop unavailable
+- [x] `WindowEnumerator`: Window listing via EnumWindows
+- [x] `WindowCapturer`: GDI PrintWindow capture at 30 FPS
+- [x] `CaptureTexture`: GPU texture upload from captured frames
+- [x] `FrameBuffer`: Frame buffering between capture and render threads
+- [ ] **Planned upgrade**: WinRT GraphicsCapture + `WGL_NV_DX_interop2` for zero-copy GPU path
 
-### Phase 3: USB HID + Head Tracking — not started
+### Phase 3: USB HID + Head Tracking — COMPLETE
 
-- [ ] `ImuProtocol`: XREAL constants (VID `0x3318`, PIDs, enable command, Adler-32 CRC)
-- [ ] `ImuReader`: Background thread, hidapi read loop, 64-byte packet parsing
-- [ ] `SensorFusion`: Complementary filter (alpha=0.98), gyro+accel pitch/roll, pure gyro yaw
-- [ ] `HeadTracker`: Thread-safe orientation via lock-free SPSC ring buffer
+- [x] `ImuProtocol`: XREAL constants (VID `0x3318`, PIDs, enable command, Adler-32 CRC)
+- [x] `ImuReader`: Background thread, hidapi read loop, 64-byte packet parsing
+- [x] `SensorFusion`: Complementary filter (alpha=0.98), gyro+accel pitch/roll, pure gyro yaw
+- [x] `HeadTracker`: Thread-safe orientation output
 
-### Phase 4: Layout System — not started
+### Phase 4: Layout System — COMPLETE
 
-- [ ] `ILayout` interface with `compute(screens, params)`
-- [ ] Arc, Grid, Stack, Single layout implementations
+- [x] `LayoutManager`: Arc, Grid, Stack, Single layout computation
 - [ ] Animated transitions (lerp/slerp over ~300ms)
-- [ ] Keyboard shortcuts (1-4 to switch, Tab to cycle focus)
 
-### Phase 5: Interaction — not started
+### Phase 5: Interaction — COMPLETE
 
-- [ ] `Raycaster`: Mouse unproject to world ray, ray-quad intersection
-- [ ] `ScreenDragger`: Drag-to-reposition selected screens
-- [ ] Double-click zoom, scroll wheel distance adjustment
-- [ ] Visual feedback: highlight borders, selection indicators
+- [x] `Raycaster`: Mouse unproject to world ray, ray-quad intersection
+- [x] Drag-to-reposition selected screens
+- [x] Scroll wheel zoom, double-click zoom
+- [x] Visual feedback: hover highlight in shader
 
-### Phase 6: Display Detection + Polish — not started
+### Phase 6: Display Detection + Polish — NOT STARTED
 
 - [ ] `DisplayDetector`: EnumDisplayDevices + EDID matching for XREAL
 - [ ] `WindowPositioner`: Borderless fullscreen on XREAL display
 - [ ] Config file (JSON), persistent settings
 - [ ] Error handling (device disconnect, window close recovery)
+- [ ] Click injection (forward mouse events to captured windows)
 
-## Architecture Notes
+## Architecture
 
-### Capture Pipeline (Phase 2, zero-copy path)
+### Capture Pipeline (current)
+```
+GDI PrintWindow -> CPU bitmap -> glTexSubImage2D -> GLuint texture -> VirtualScreen quad
+```
+
+### Capture Pipeline (planned zero-copy upgrade)
 ```
 WinRT GraphicsCapture -> ID3D11Texture2D -> WGL_NV_DX_interop2 -> GLuint texture -> VirtualScreen quad
 ```
 
-### IMU Pipeline (Phase 3)
+### IMU Pipeline
 ```
-ImuReader thread -> SPSC ring buffer -> HeadTracker (main thread) -> SensorFusion -> Camera
+ImuReader thread -> HeadTracker -> SensorFusion -> Camera orientation
 ```
 
 ### XREAL Hardware Constants
@@ -176,10 +206,12 @@ ImuReader thread -> SPSC ring buffer -> HeadTracker (main thread) -> SensorFusio
 
 ## Next Steps
 
-1. **Install build tools** (CMake + MSVC) — see Prerequisites above
-2. **Build and run Phase 1** — verify the 3 checker-textured quads render with camera rotation
-3. **Phase 2: Window Capture** — the most technically challenging phase (WinRT/COM interop, threading)
-4. **Phase 3: Head Tracking** — direct USB HID with hidapi, sensor fusion
+1. **Phase 6: Display Detection** — auto-detect XREAL glasses via EDID, fullscreen output
+2. **Click injection** — forward mouse clicks to captured windows for full interactivity
+3. **WinRT capture upgrade** — zero-copy GPU path for lower latency
+4. **Animated layout transitions** — smooth lerp/slerp when switching layouts
+5. **Config persistence** — JSON settings file for user preferences
+6. **Tests** — unit tests for sensor fusion, layouts, raycasting
 
 ## References
 
