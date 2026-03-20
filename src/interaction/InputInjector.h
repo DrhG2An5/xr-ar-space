@@ -21,21 +21,24 @@ public:
     static void sendMouseMove(HWND hwnd, float u, float v);
     static void sendScroll(HWND hwnd, float u, float v, float delta);
 
-    // --- Keyboard injection (SetForegroundWindow + SendInput for real focus) ---
+    // --- Keyboard injection (PostMessage with simulated focus) ---
 
-    // Bring the target window to foreground so it receives keyboard input.
+    // Simulate focus on the target window so it accepts PostMessage keyboard input.
+    // Sends WM_ACTIVATE + WM_SETFOCUS without actually changing foreground window.
     // Call once when entering keyboard forwarding mode.
-    static void focusWindow(HWND hwnd);
+    static void simulateFocus(HWND hwnd);
 
-    // Send a key event using SendInput (OS-level, works with all apps).
-    // Accepts GLFW key codes — internally maps to Windows VK codes.
+    // Remove simulated focus (sends WM_KILLFOCUS + WM_ACTIVATE deactivate).
+    static void simulateUnfocus(HWND hwnd);
+
+    // Send a key event via PostMessage. Accepts GLFW key codes — maps to Windows VK codes.
     static void sendKeyDownGlfw(HWND hwnd, int glfwKey);
     static void sendKeyUpGlfw(HWND hwnd, int glfwKey);
 
-    // Send a character (uses SendInput with KEYEVENTF_UNICODE).
-    static void sendCharInput(wchar_t ch);
+    // Send a character via PostMessage (WM_CHAR).
+    static void sendCharForward(HWND hwnd, wchar_t ch);
 
-    // Legacy PostMessage-based key injection (kept for fallback).
+    // Low-level PostMessage key injection by VK code.
     static void sendKeyDown(HWND hwnd, UINT vkCode);
     static void sendKeyUp(HWND hwnd, UINT vkCode);
     static void sendChar(HWND hwnd, wchar_t ch);

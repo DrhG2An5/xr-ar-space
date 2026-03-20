@@ -208,6 +208,19 @@ void App::run() {
         m_renderer.render(m_screens);
         m_renderer.endFrame();
 
+        // Update status bar text
+        if (m_keyboardForwarding) {
+            m_helpOverlay.setStatus("Keyboard Forwarding ON  |  Escape to stop");
+        } else if (m_zoomedIn && m_zoomedScreen >= 0) {
+            char buf[64];
+            snprintf(buf, sizeof(buf), "Zoomed: Screen %d  |  Ctrl+Z to unzoom", m_zoomedScreen + 1);
+            m_helpOverlay.setStatus(buf);
+        } else if (m_headTrackingEnabled) {
+            m_helpOverlay.setStatus("Head Tracking ON");
+        } else {
+            m_helpOverlay.clearStatus();
+        }
+
         // ImGui overlay (rendered on top of 3D scene)
         m_ui.beginFrame();
         m_windowPicker.setWindowList(m_windowList);
@@ -407,6 +420,9 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
     // Escape always exits keyboard forwarding first, then closes app
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
         if (app->m_keyboardForwarding) {
+            if (app->m_keyboardTargetHwnd) {
+                InputInjector::simulateUnfocus(app->m_keyboardTargetHwnd);
+            }
             app->m_keyboardForwarding = false;
             app->m_keyboardTargetHwnd = nullptr;
             Log::info("Keyboard forwarding OFF");
@@ -430,8 +446,8 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
             if (src && IsWindow(src->hwnd())) {
                 app->m_keyboardForwarding = true;
                 app->m_keyboardTargetHwnd = src->hwnd();
-                // Bring target window to foreground so it receives SendInput
-                InputInjector::focusWindow(src->hwnd());
+                // Simulate focus on target so it accepts keyboard messages
+                InputInjector::simulateFocus(src->hwnd());
                 Log::info("Keyboard forwarding ON (screen {}) — press Escape to stop", idx + 1);
                 return;
             }
@@ -824,8 +840,9 @@ void App::charCallback(GLFWwindow* window, unsigned int codepoint) {
 
     if (app->m_ui.wantCaptureKeyboard()) return;
 
-    if (app->m_keyboardForwarding) {
-        InputInjector::sendCharInput(static_cast<wchar_t>(codepoint));
+    if (app->m_keyboardForwarding && app->m_keyboardTargetHwnd) {
+        InputInjector::sendCharForward(app->m_keyboardTargetHwnd,
+                                       static_cast<wchar_t>(codepoint));
     }
 }
 

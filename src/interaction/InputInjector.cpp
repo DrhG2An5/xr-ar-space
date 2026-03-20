@@ -76,84 +76,44 @@ void InputInjector::sendScroll(HWND hwnd, float u, float v, float delta) {
 }
 
 // ---------------------------------------------------------------------------
-// Window focus (for keyboard forwarding)
+// Simulated focus (for keyboard forwarding without stealing foreground)
 // ---------------------------------------------------------------------------
 
-void InputInjector::focusWindow(HWND hwnd) {
+void InputInjector::simulateFocus(HWND hwnd) {
     if (!IsWindow(hwnd)) return;
+    // Tell the target window it is being activated and has keyboard focus.
+    // This doesn't actually change the foreground window — our app stays in front.
+    PostMessage(hwnd, WM_ACTIVATE, MAKEWPARAM(WA_ACTIVE, 0), 0);
+    PostMessage(hwnd, WM_SETFOCUS, 0, 0);
+}
 
-    // Allow our process to set the foreground window.
-    // AttachThreadInput lets us bypass the foreground lock.
-    DWORD targetThread = GetWindowThreadProcessId(hwnd, nullptr);
-    DWORD ourThread = GetCurrentThreadId();
-
-    if (targetThread != ourThread) {
-        AttachThreadInput(ourThread, targetThread, TRUE);
-    }
-
-    // Restore if minimized
-    if (IsIconic(hwnd)) {
-        ShowWindow(hwnd, SW_RESTORE);
-    }
-
-    SetForegroundWindow(hwnd);
-    SetFocus(hwnd);
-
-    if (targetThread != ourThread) {
-        AttachThreadInput(ourThread, targetThread, FALSE);
-    }
+void InputInjector::simulateUnfocus(HWND hwnd) {
+    if (!IsWindow(hwnd)) return;
+    PostMessage(hwnd, WM_KILLFOCUS, 0, 0);
+    PostMessage(hwnd, WM_ACTIVATE, MAKEWPARAM(WA_INACTIVE, 0), 0);
 }
 
 // ---------------------------------------------------------------------------
-// Keyboard injection via SendInput (OS-level, works with all apps)
+// Keyboard injection via PostMessage with proper GLFW→VK mapping
 // ---------------------------------------------------------------------------
 
 void InputInjector::sendKeyDownGlfw(HWND hwnd, int glfwKey) {
     if (!IsWindow(hwnd)) return;
     UINT vk = glfwKeyToVk(glfwKey);
     if (vk == 0) return;
-
-    INPUT input{};
-    input.type = INPUT_KEYBOARD;
-    input.ki.wVk = static_cast<WORD>(vk);
-    input.ki.wScan = static_cast<WORD>(MapVirtualKey(vk, MAPVK_VK_TO_VSC));
-    input.ki.dwFlags = 0;
-    if (vk >= VK_LEFT && vk <= VK_DOWN) {
-        input.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
-    }
-    SendInput(1, &input, sizeof(INPUT));
+    sendKeyDown(hwnd, vk);
 }
 
 void InputInjector::sendKeyUpGlfw(HWND hwnd, int glfwKey) {
     if (!IsWindow(hwnd)) return;
     UINT vk = glfwKeyToVk(glfwKey);
     if (vk == 0) return;
-
-    INPUT input{};
-    input.type = INPUT_KEYBOARD;
-    input.ki.wVk = static_cast<WORD>(vk);
-    input.ki.wScan = static_cast<WORD>(MapVirtualKey(vk, MAPVK_VK_TO_VSC));
-    input.ki.dwFlags = KEYEVENTF_KEYUP;
-    if (vk >= VK_LEFT && vk <= VK_DOWN) {
-        input.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
-    }
-    SendInput(1, &input, sizeof(INPUT));
+    sendKeyUp(hwnd, vk);
 }
 
-void InputInjector::sendCharInput(wchar_t ch) {
-    INPUT inputs[2]{};
-
-    // Key down
-    inputs[0].type = INPUT_KEYBOARD;
-    inputs[0].ki.wScan = static_cast<WORD>(ch);
-    inputs[0].ki.dwFlags = KEYEVENTF_UNICODE;
-
-    // Key up
-    inputs[1].type = INPUT_KEYBOARD;
-    inputs[1].ki.wScan = static_cast<WORD>(ch);
-    inputs[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
-
-    SendInput(2, inputs, sizeof(INPUT));
+void InputInjector::sendCharForward(HWND hwnd, wchar_t ch) {
+    if (!IsWindow(hwnd)) return;
+    PostMessageW(hwnd, WM_CHAR, ch, 0);
 }
 
 // ---------------------------------------------------------------------------
