@@ -6,6 +6,32 @@
 
 namespace xr {
 
+// Static members for HIDAPI reference counting
+std::mutex ImuReader::s_hidMutex;
+int ImuReader::s_hidRefCount = 0;
+
+bool ImuReader::hidInit() {
+    std::lock_guard lock(s_hidMutex);
+    if (s_hidRefCount == 0) {
+        if (hid_init() != 0) {
+            Log::error("Failed to initialize HIDAPI");
+            return false;
+        }
+    }
+    ++s_hidRefCount;
+    return true;
+}
+
+void ImuReader::hidExit() {
+    std::lock_guard lock(s_hidMutex);
+    if (s_hidRefCount > 0) {
+        --s_hidRefCount;
+        if (s_hidRefCount == 0) {
+            hid_exit();
+        }
+    }
+}
+
 ImuReader::~ImuReader() {
     stop();
 }
@@ -13,9 +39,8 @@ ImuReader::~ImuReader() {
 bool ImuReader::start() {
     if (m_running.load()) return true;
 
-    // Initialize HIDAPI
-    if (hid_init() != 0) {
-        Log::error("Failed to initialize HIDAPI");
+    // Initialize HIDAPI (reference-counted)
+    if (!hidInit()) {
         return false;
     }
 
@@ -36,6 +61,7 @@ bool ImuReader::start() {
     if (!match) {
         Log::warn("No XREAL device found — head tracking unavailable");
         hid_free_enumeration(devs);
+        hidExit();
         return false;
     }
 
@@ -49,9 +75,14 @@ bool ImuReader::start() {
 
     if (!dev) {
         Log::error("Failed to open XREAL HID device");
+        hidExit();
         return false;
     }
-    m_device = dev;
+
+    {
+        std::lock_guard lock(m_deviceMutex);
+        m_device = dev;
+    }
 
     // Set non-blocking mode (we'll use a timeout in hid_read_timeout instead)
     hid_set_nonblocking(dev, 0);
@@ -61,8 +92,10 @@ bool ImuReader::start() {
     int written = hid_write(dev, enableCmd.data(), enableCmd.size());
     if (written < 0) {
         Log::error("Failed to send IMU enable command");
+        std::lock_guard lock(m_deviceMutex);
         hid_close(dev);
         m_device = nullptr;
+        hidExit();
         return false;
     }
     Log::info("IMU streaming enabled");
@@ -76,7 +109,16 @@ bool ImuReader::start() {
 }
 
 void ImuReader::stop() {
-    if (!m_running.load()) return;
+    if (!m_running.load() && !m_thread.joinable()) {
+        // Clean up device if thread already exited (disconnect scenario)
+        std::lock_guard lock(m_deviceMutex);
+        if (m_device) {
+            hid_close(static_cast<hid_device*>(m_device));
+            m_device = nullptr;
+            hidExit();
+        }
+        return;
+    }
 
     m_stopRequested.store(true);
 
@@ -84,6 +126,7 @@ void ImuReader::stop() {
         m_thread.join();
     }
 
+    std::lock_guard lock(m_deviceMutex);
     auto* dev = static_cast<hid_device*>(m_device);
     if (dev) {
         // Send IMU disable command
@@ -96,7 +139,7 @@ void ImuReader::stop() {
     }
 
     m_running.store(false);
-    hid_exit();
+    hidExit();
 }
 
 void ImuReader::drainSamples(std::deque<ImuSample>& out) {
@@ -106,7 +149,18 @@ void ImuReader::drainSamples(std::deque<ImuSample>& out) {
 }
 
 void ImuReader::readLoop() {
-    auto* dev = static_cast<hid_device*>(m_device);
+    // Take a local copy of the device pointer under lock
+    hid_device* dev = nullptr;
+    {
+        std::lock_guard lock(m_deviceMutex);
+        dev = static_cast<hid_device*>(m_device);
+    }
+
+    if (!dev) {
+        m_running.store(false);
+        return;
+    }
+
     uint8_t buf[ImuProtocol::kPacketSize];
 
     while (!m_stopRequested.load()) {

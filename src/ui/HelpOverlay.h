@@ -55,6 +55,7 @@ public:
             ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Interaction");
             ImGui::Separator();
             helpEntry("Ctrl+K",       "Toggle keyboard forwarding");
+            helpEntry("Ctrl+Z",       "Zoom / unzoom selected screen");
             helpEntry("Left-click",   "Select screen / click into window");
             helpEntry("Ctrl+Drag",    "Move screen");
             helpEntry("Shift+Drag",   "Resize screen");

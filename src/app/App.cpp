@@ -161,6 +161,37 @@ void App::run() {
         // Animate layout transitions
         m_layoutManager.update(m_screens, dt);
 
+        // Animate per-window zoom
+        if (m_zoomAnimating) {
+            float zoomSpeed = 4.0f; // ~250ms transition
+            if (m_zoomedIn) {
+                m_zoomAnimProgress += dt * zoomSpeed;
+                if (m_zoomAnimProgress >= 1.0f) {
+                    m_zoomAnimProgress = 1.0f;
+                    m_zoomAnimating = false;
+                }
+            } else {
+                m_zoomAnimProgress -= dt * zoomSpeed;
+                if (m_zoomAnimProgress <= 0.0f) {
+                    m_zoomAnimProgress = 0.0f;
+                    m_zoomAnimating = false;
+                    m_zoomedScreen = -1;
+                }
+            }
+
+            // Apply smoothstep scale to the zoomed screen
+            float t = m_zoomAnimProgress * m_zoomAnimProgress * (3.0f - 2.0f * m_zoomAnimProgress);
+            float scale = 1.0f + (m_zoomScale - 1.0f) * t;
+
+            for (size_t i = 0; i < m_screens.size(); ++i) {
+                if (static_cast<int>(i) == m_zoomedScreen) {
+                    m_screens[i]->setScale(glm::vec3(scale));
+                } else {
+                    m_screens[i]->setScale(glm::vec3(1.0f));
+                }
+            }
+        }
+
         // Update capture textures; clean up dead captures
         updateCaptureTextures();
 
@@ -377,6 +408,7 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
         if (app->m_keyboardForwarding) {
             app->m_keyboardForwarding = false;
+            app->m_keyboardTargetHwnd = nullptr;
             Log::info("Keyboard forwarding OFF");
         } else {
             glfwSetWindowShouldClose(window, GLFW_TRUE);
@@ -397,6 +429,9 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
             auto* src = app->m_captureTextures[idx]->source();
             if (src && IsWindow(src->hwnd())) {
                 app->m_keyboardForwarding = true;
+                app->m_keyboardTargetHwnd = src->hwnd();
+                // Bring target window to foreground so it receives SendInput
+                InputInjector::focusWindow(src->hwnd());
                 Log::info("Keyboard forwarding ON (screen {}) — press Escape to stop", idx + 1);
                 return;
             }
@@ -405,19 +440,12 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
         return;
     }
 
-    // When forwarding, send keys to captured window (no Ctrl required — passthrough mode)
+    // When forwarding, send keys via SendInput (OS-level, works with all apps)
     if (app->m_keyboardForwarding) {
-        int idx = app->m_selectedScreen;
-        if (idx >= 0 && idx < static_cast<int>(app->m_captureTextures.size())) {
-            auto* src = app->m_captureTextures[idx]->source();
-            if (src && IsWindow(src->hwnd())) {
-                UINT vk = static_cast<UINT>(key);
-                if (action == GLFW_PRESS || action == GLFW_REPEAT) {
-                    InputInjector::sendKeyDown(src->hwnd(), vk);
-                } else if (action == GLFW_RELEASE) {
-                    InputInjector::sendKeyUp(src->hwnd(), vk);
-                }
-            }
+        if (action == GLFW_PRESS || action == GLFW_REPEAT) {
+            InputInjector::sendKeyDownGlfw(app->m_keyboardTargetHwnd, key);
+        } else if (action == GLFW_RELEASE) {
+            InputInjector::sendKeyUpGlfw(app->m_keyboardTargetHwnd, key);
         }
         return;
     }
@@ -513,6 +541,24 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
                 } else {
                     if (!app->m_virtualDisplay.create()) {
                         Log::warn("Could not create virtual display — see log for details");
+                    }
+                }
+                break;
+            case GLFW_KEY_Z:
+                // Toggle zoom on selected screen
+                if (app->m_selectedScreen >= 0 &&
+                    app->m_selectedScreen < static_cast<int>(app->m_screens.size())) {
+                    if (app->m_zoomedIn && app->m_zoomedScreen == app->m_selectedScreen) {
+                        // Zoom out
+                        app->m_zoomedIn = false;
+                        app->m_zoomAnimating = true;
+                        Log::info("Screen {} zoom out", app->m_selectedScreen + 1);
+                    } else {
+                        // Zoom in on selected screen
+                        app->m_zoomedIn = true;
+                        app->m_zoomedScreen = app->m_selectedScreen;
+                        app->m_zoomAnimating = true;
+                        Log::info("Screen {} zoom in", app->m_selectedScreen + 1);
                     }
                 }
                 break;
@@ -779,13 +825,7 @@ void App::charCallback(GLFWwindow* window, unsigned int codepoint) {
     if (app->m_ui.wantCaptureKeyboard()) return;
 
     if (app->m_keyboardForwarding) {
-        int idx = app->m_selectedScreen;
-        if (idx >= 0 && idx < static_cast<int>(app->m_captureTextures.size())) {
-            auto* src = app->m_captureTextures[idx]->source();
-            if (src && IsWindow(src->hwnd())) {
-                InputInjector::sendChar(src->hwnd(), static_cast<wchar_t>(codepoint));
-            }
-        }
+        InputInjector::sendCharInput(static_cast<wchar_t>(codepoint));
     }
 }
 

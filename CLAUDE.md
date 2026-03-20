@@ -72,6 +72,8 @@ cmake --build build --config Release
 
 ## Current Status
 
-- Phases 1-5 complete (rendering, capture, HID, tracking, layouts, interaction)
-- Phase 6 not started (display detection, XREAL EDID matching, fullscreen output)
-- Planned upgrades: WinRT zero-copy capture, click injection, animated transitions, config persistence
+- Phases 1-6 complete (rendering, capture, HID, tracking, layouts, interaction, display detection, config persistence)
+- Keyboard forwarding via SendInput + SetForegroundWindow (works with all apps)
+- Head tracking reconnection fully fixed (ref-counted HIDAPI, thread-safe device handle, timestamp guards)
+- Per-window zoom with animated transitions (Ctrl+Z)
+- Planned upgrades: WGL_NV_DX_interop2 zero-copy capture, SendInput mouse injection, 6DoF tracking

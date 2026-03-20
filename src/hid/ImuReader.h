@@ -42,9 +42,16 @@ private:
     std::mutex m_queueMutex;
     std::deque<ImuSample> m_queue;
 
-    // HID device handle (opaque, managed internally)
+    // HID device handle — protected by m_deviceMutex for thread-safe access
+    std::mutex m_deviceMutex;
     void* m_device = nullptr;
     uint16_t m_productId = 0;
+
+    // Global HIDAPI init/exit reference counting
+    static std::mutex s_hidMutex;
+    static int s_hidRefCount;
+    static bool hidInit();
+    static void hidExit();
 };
 
 } // namespace xr

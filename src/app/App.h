@@ -17,6 +17,10 @@
 #include "ui/HelpOverlay.h"
 #include "util/Timer.h"
 
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <Windows.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <vector>
@@ -77,6 +81,14 @@ private:
 
     // Keyboard forwarding: when true, keystrokes go to the focused captured window
     bool m_keyboardForwarding = false;
+    HWND m_keyboardTargetHwnd = nullptr;
+
+    // Per-window zoom state
+    bool m_zoomedIn = false;           // Is a screen currently zoomed?
+    int m_zoomedScreen = -1;           // Which screen is zoomed
+    float m_zoomScale = 2.0f;          // Scale factor when zoomed
+    float m_zoomAnimProgress = 0.0f;   // 0 = normal, 1 = fully zoomed
+    bool m_zoomAnimating = false;
 
     // Capture state
     std::vector<std::unique_ptr<CaptureTexture>> m_captureTextures;
