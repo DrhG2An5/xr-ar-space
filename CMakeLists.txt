@@ -49,6 +49,19 @@ target_include_directories(glad PUBLIC extern/glad/include)
 add_library(stb INTERFACE)
 target_include_directories(stb INTERFACE extern/stb)
 
+# ── Dear ImGui (vendored, GLFW + OpenGL3 backends) ──────────────────────────
+add_library(imgui STATIC
+    extern/imgui/imgui.cpp
+    extern/imgui/imgui_demo.cpp
+    extern/imgui/imgui_draw.cpp
+    extern/imgui/imgui_tables.cpp
+    extern/imgui/imgui_widgets.cpp
+    extern/imgui/backends/imgui_impl_glfw.cpp
+    extern/imgui/backends/imgui_impl_opengl3.cpp
+)
+target_include_directories(imgui PUBLIC extern/imgui extern/imgui/backends)
+target_link_libraries(imgui PRIVATE glfw)
+
 # ── Main executable ───────────────────────────────────────────────────────────
 file(GLOB_RECURSE APP_SOURCES CONFIGURE_DEPENDS "src/*.cpp")
 add_executable(${PROJECT_NAME} ${APP_SOURCES})
@@ -64,6 +77,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     glfw
     glm::glm
     stb
+    imgui
     opengl32
     dwmapi
     d3d11

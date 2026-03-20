@@ -10,6 +10,8 @@
 #include "interaction/Raycaster.h"
 #include "display/DisplayDetector.h"
 #include "display/WindowPositioner.h"
+#include "ui/UIManager.h"
+#include "ui/WindowPicker.h"
 #include "util/Timer.h"
 
 #include <GLFW/glfw3.h>
@@ -82,6 +84,10 @@ private:
     // Display detection
     std::vector<DisplayInfo> m_displays;
     std::optional<DisplayInfo> m_xrealDisplay;
+
+    // UI
+    UIManager m_ui;
+    WindowPicker m_windowPicker;
 
     // Recovery
     float m_headTrackingRetryTimer = 0.0f;

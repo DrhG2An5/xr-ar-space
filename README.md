@@ -8,7 +8,7 @@ Rebuilt from an Electron/TypeScript prototype for lower latency, direct USB HID 
 
 | Component | Technology |
 |-----------|-----------|
-| Graphics | OpenGL 4.6 Core (GLFW + GLAD + GLM) |
+| Graphics | OpenGL 4.6 Core (GLFW + GLAD + GLM), Dear ImGui overlay |
 | Window Capture | WinRT Graphics.Capture (primary) / GDI PrintWindow (fallback) |
 | USB HID | hidapi (winapi backend) |
 | Build | CMake 3.24+ with FetchContent |
@@ -72,7 +72,7 @@ build\Release\xr_ar_space.exe
 | Tab | Cycle selected screen |
 | L | Cycle layout (Arc/Grid/Stack/Single) |
 | R | Reset camera orientation |
-| W | Refresh window list |
+| W | Toggle window picker UI |
 | H | Toggle head tracking |
 | F | Toggle borderless fullscreen on XREAL (or primary) |
 | D | Refresh display list |
@@ -103,6 +103,7 @@ xr_ar_space/
 │   │   ├── include/glad/gl.h
 │   │   ├── include/KHR/khrplatform.h
 │   │   └── src/gl.c
+│   ├── imgui/                   # Dear ImGui v1.91.8 (GLFW + OpenGL3 backends)
 │   └── stb/                     # stb_image.h for test textures
 ├── shaders/
 │   ├── screen.vert/frag         # Virtual screen rendering + hover highlight
@@ -133,6 +134,9 @@ xr_ar_space/
     │   └── HeadTracker.h/cpp     # Thread-safe 3DoF orientation
     ├── layout/
     │   └── LayoutManager.h       # Arc/Grid/Stack/Single layouts + animated transitions
+    ├── ui/
+    │   ├── UIManager.h/cpp       # Dear ImGui lifecycle (init, frame, shutdown)
+    │   └── WindowPicker.h/cpp    # Window selection panel with filtering
     ├── interaction/
     │   ├── Raycaster.h           # Mouse ray-quad intersection, screen picking
     │   └── InputInjector.h/cpp   # Click/scroll injection into captured windows

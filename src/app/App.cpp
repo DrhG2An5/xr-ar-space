@@ -93,6 +93,15 @@ bool App::init(const Config& config) {
         Log::info("No XREAL display detected — press D to refresh displays, F for fullscreen on primary");
     }
 
+    // Initialize ImGui overlay
+    if (!m_ui.init(m_window)) {
+        Log::error("Failed to initialize ImGui");
+        return false;
+    }
+
+    // Configure window picker
+    m_windowPicker.setOnAssign([this](int idx) { assignWindowToScreen(idx); });
+
     m_running = true;
     Log::info("App initialized successfully");
     return true;
@@ -154,11 +163,21 @@ void App::run() {
         m_renderer.render(m_screens);
         m_renderer.endFrame();
 
+        // ImGui overlay (rendered on top of 3D scene)
+        m_ui.beginFrame();
+        m_windowPicker.setWindowList(m_windowList);
+        m_windowPicker.setScreenCount(static_cast<int>(m_screens.size()));
+        m_windowPicker.setSelectedScreen(m_selectedScreen);
+        m_windowPicker.draw();
+        m_ui.endFrame();
+
         glfwSwapBuffers(m_window);
     }
 }
 
 void App::shutdown() {
+    m_ui.shutdown();
+
     // Stop head tracking first
     if (m_headTracker) {
         m_headTracker->stop();
@@ -332,6 +351,9 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
     auto* app = static_cast<App*>(glfwGetWindowUserPointer(window));
     if (!app) return;
 
+    // Let ImGui consume keyboard input when it has focus
+    if (app->m_ui.wantCaptureKeyboard()) return;
+
     if (action == GLFW_PRESS) {
         switch (key) {
             case GLFW_KEY_ESCAPE:
@@ -359,8 +381,11 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
                 app->m_renderer.camera().setPitch(0.0f);
                 break;
             case GLFW_KEY_W:
-                // Refresh window list
-                app->refreshWindowList();
+                // Toggle window picker (also refreshes list when opening)
+                app->m_windowPicker.toggle();
+                if (app->m_windowPicker.isVisible()) {
+                    app->refreshWindowList();
+                }
                 break;
             case GLFW_KEY_H:
                 // Toggle head tracking
@@ -460,6 +485,9 @@ void App::mouseButtonCallback(GLFWwindow* window, int button, int action, int mo
     auto* app = static_cast<App*>(glfwGetWindowUserPointer(window));
     if (!app) return;
 
+    // Let ImGui consume mouse input when hovering its windows
+    if (app->m_ui.wantCaptureMouse()) return;
+
     double dMx, dMy;
     glfwGetCursorPos(window, &dMx, &dMy);
     float mx = static_cast<float>(dMx);
@@ -548,6 +576,8 @@ void App::cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
     auto* app = static_cast<App*>(glfwGetWindowUserPointer(window));
     if (!app) return;
 
+    if (app->m_ui.wantCaptureMouse()) return;
+
     float mx = static_cast<float>(xpos);
     float my = static_cast<float>(ypos);
 
@@ -606,6 +636,8 @@ void App::cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
 void App::scrollCallback(GLFWwindow* window, double /*xoffset*/, double yoffset) {
     auto* app = static_cast<App*>(glfwGetWindowUserPointer(window));
     if (!app) return;
+
+    if (app->m_ui.wantCaptureMouse()) return;
 
     bool ctrlHeld = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
                     glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;

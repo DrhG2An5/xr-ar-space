@@ -41,6 +41,11 @@ static BOOL CALLBACK enumCallback(HWND hwnd, LPARAM lParam) {
     GetWindowTextA(hwnd, title.data(), len + 1);
     title.resize(len);
 
+    // Get window class name
+    char classBuf[256] = {};
+    GetClassNameA(hwnd, classBuf, sizeof(classBuf));
+    std::string className(classBuf);
+
     // Get client rect dimensions
     RECT rect{};
     GetClientRect(hwnd, &rect);
@@ -50,7 +55,7 @@ static BOOL CALLBACK enumCallback(HWND hwnd, LPARAM lParam) {
     // Skip zero-size windows
     if (w <= 0 || h <= 0) return TRUE;
 
-    list->push_back({hwnd, std::move(title), w, h});
+    list->push_back({hwnd, std::move(title), std::move(className), w, h});
     return TRUE;
 }
 
@@ -66,7 +71,7 @@ void WindowEnumerator::printList(const std::vector<WindowInfo>& windows) {
     for (size_t i = 0; i < windows.size(); ++i) {
         Log::info("  [{}] {}x{} - {}", i + 1, windows[i].width, windows[i].height, windows[i].title);
     }
-    Log::info("Press 1-9 to assign a window to the selected screen. W to refresh.");
+    Log::info("Press W to open window picker, or 1-9 for quick assign.");
 }
 
 } // namespace xr

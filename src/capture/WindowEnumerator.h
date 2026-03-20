@@ -13,6 +13,7 @@ namespace xr {
 struct WindowInfo {
     HWND hwnd = nullptr;
     std::string title;
+    std::string className;
     int width = 0;
     int height = 0;
 };
