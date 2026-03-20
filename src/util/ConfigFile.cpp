@@ -92,6 +92,7 @@ std::string ConfigFile::toJson(const Config& config) {
     ss << "  \"screenDistance\": " << config.screenDistance << ",\n";
     ss << "  \"screenWidth\": " << config.screenWidth << ",\n";
     ss << "  \"screenHeight\": " << config.screenHeight << ",\n";
+    ss << "  \"screenCurvature\": " << config.screenCurvature << ",\n";
     ss << "  \"rotationSpeed\": " << config.rotationSpeed << ",\n";
     ss << "  \"arcSpanDeg\": " << config.arcSpanDeg << ",\n";
     ss << "  \"gridGap\": " << config.gridGap << ",\n";
@@ -115,9 +116,10 @@ Config ConfigFile::fromJson(const std::string& json) {
     c.nearPlane       = findFloat(json, "nearPlane", c.nearPlane);
     c.farPlane        = findFloat(json, "farPlane", c.farPlane);
     c.screenDistance   = findFloat(json, "screenDistance", c.screenDistance);
-    c.screenWidth     = findFloat(json, "screenWidth", c.screenWidth);
-    c.screenHeight    = findFloat(json, "screenHeight", c.screenHeight);
-    c.rotationSpeed   = findFloat(json, "rotationSpeed", c.rotationSpeed);
+    c.screenWidth      = findFloat(json, "screenWidth", c.screenWidth);
+    c.screenHeight     = findFloat(json, "screenHeight", c.screenHeight);
+    c.screenCurvature  = findFloat(json, "screenCurvature", c.screenCurvature);
+    c.rotationSpeed    = findFloat(json, "rotationSpeed", c.rotationSpeed);
     c.arcSpanDeg      = findFloat(json, "arcSpanDeg", c.arcSpanDeg);
     c.gridGap         = findFloat(json, "gridGap", c.gridGap);
     c.stackZOffset    = findFloat(json, "stackZOffset", c.stackZOffset);

@@ -9,6 +9,7 @@
 #include "layout/LayoutManager.h"
 #include "interaction/Raycaster.h"
 #include "display/DisplayDetector.h"
+#include "display/VirtualDisplay.h"
 #include "display/WindowPositioner.h"
 #include "ui/UIManager.h"
 #include "ui/WindowPicker.h"
@@ -90,6 +91,7 @@ private:
     // Display detection
     std::vector<DisplayInfo> m_displays;
     std::optional<DisplayInfo> m_xrealDisplay;
+    VirtualDisplay m_virtualDisplay;
 
     // UI
     UIManager m_ui;

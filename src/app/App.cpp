@@ -233,6 +233,7 @@ void App::createTestScreens() {
     for (int i = 0; i < screenCount; ++i) {
         auto screen = std::make_unique<VirtualScreen>();
         screen->init(m_config.screenWidth, m_config.screenHeight);
+        screen->setCurvature(m_config.screenCurvature);
 
         // Create a checker texture for each (different sizes for visual variety)
         int texW = 512 + i * 256;
@@ -493,6 +494,16 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
                     Log::info("XREAL display found: {}", app->m_xrealDisplay->monitorName);
                 } else {
                     Log::info("No XREAL display detected");
+                }
+                break;
+            case GLFW_KEY_V:
+                // Toggle virtual display
+                if (app->m_virtualDisplay.isActive()) {
+                    app->m_virtualDisplay.destroy();
+                } else {
+                    if (!app->m_virtualDisplay.create()) {
+                        Log::warn("Could not create virtual display — see log for details");
+                    }
                 }
                 break;
             case GLFW_KEY_P:

@@ -87,6 +87,21 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     windowsapp  # C++/WinRT runtime
 )
 
+# ── Tests ────────────────────────────────────────────────────────────────────
+# doctest (vendored single-header)
+add_library(doctest INTERFACE)
+target_include_directories(doctest INTERFACE extern/doctest)
+
+file(GLOB TEST_SOURCES CONFIGURE_DEPENDS "tests/*.cpp")
+if(TEST_SOURCES)
+    add_executable(xr_tests ${TEST_SOURCES})
+    target_include_directories(xr_tests PRIVATE src)
+    target_compile_definitions(xr_tests PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_link_libraries(xr_tests PRIVATE doctest glm::glm)
+    enable_testing()
+    add_test(NAME xr_tests COMMAND xr_tests)
+endif()
+
 # Copy shaders next to executable
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
