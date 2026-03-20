@@ -76,10 +76,12 @@ build\Release\xr_ar_space.exe
 | H | Toggle head tracking |
 | F | Toggle borderless fullscreen on XREAL (or primary) |
 | D | Refresh display list |
+| G | Toggle settings panel |
+| K | Toggle keyboard forwarding to captured window |
 | P | Pin/unpin selected screen (prevents dragging) |
 | S | Save current config |
 | 1-9 | Assign window to selected screen |
-| Escape | Exit |
+| Escape | Exit (or stop keyboard forwarding) |
 
 ### Mouse
 
@@ -89,6 +91,7 @@ build\Release\xr_ar_space.exe
 | Left-click | Click into captured window (injected) |
 | Right-click | Right-click into captured window |
 | Ctrl + Left-click drag | Move frame position |
+| Shift + Left-click drag | Resize screen |
 | Middle mouse drag | Move frame position |
 | Scroll over window | Scroll forwarded to captured window |
 | Ctrl + Scroll | Zoom in/out (change screen distance) |
@@ -136,7 +139,8 @@ xr_ar_space/
     │   └── LayoutManager.h       # Arc/Grid/Stack/Single layouts + animated transitions
     ├── ui/
     │   ├── UIManager.h/cpp       # Dear ImGui lifecycle (init, frame, shutdown)
-    │   └── WindowPicker.h/cpp    # Window selection panel with filtering
+    │   ├── WindowPicker.h/cpp    # Window selection panel with thumbnails
+    │   └── SettingsPanel.h/cpp   # Config controls (FOV, distance, curvature, etc.)
     ├── interaction/
     │   ├── Raycaster.h           # Mouse ray-quad intersection, screen picking
     │   └── InputInjector.h/cpp   # Click/scroll injection into captured windows

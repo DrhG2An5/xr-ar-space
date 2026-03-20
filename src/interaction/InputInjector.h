@@ -28,6 +28,15 @@ public:
     // Send scroll wheel event at UV coordinate.
     static void sendScroll(HWND hwnd, float u, float v, float delta);
 
+    // Send a key down event.
+    static void sendKeyDown(HWND hwnd, UINT vkCode);
+
+    // Send a key up event.
+    static void sendKeyUp(HWND hwnd, UINT vkCode);
+
+    // Send a character (WM_CHAR).
+    static void sendChar(HWND hwnd, wchar_t ch);
+
 private:
     // Convert UV (bottom-left origin) to window pixel LPARAM (top-left origin).
     static LPARAM uvToLParam(HWND hwnd, float u, float v);

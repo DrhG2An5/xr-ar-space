@@ -29,6 +29,9 @@ struct Config {
     float gridGap = 0.15f;          // Gap between screens in Grid layout
     float stackZOffset = 0.05f;     // Z-offset between stacked screens
 
+    // Screen curvature (0 = flat, 1 = max curve)
+    float screenCurvature = 0.0f;
+
     // Interaction
     float minDistance = 1.0f;
     float maxDistance = 10.0f;
