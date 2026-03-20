@@ -78,6 +78,7 @@ build\Release\xr_ar_space.exe
 | D | Refresh display list |
 | G | Toggle settings panel |
 | K | Toggle keyboard forwarding to captured window |
+| V | Toggle virtual display extension |
 | P | Pin/unpin selected screen (prevents dragging) |
 | S | Save current config |
 | 1-9 | Assign window to selected screen |
@@ -106,12 +107,13 @@ xr_ar_space/
 │   │   ├── include/glad/gl.h
 │   │   ├── include/KHR/khrplatform.h
 │   │   └── src/gl.c
+│   ├── doctest/                 # doctest v2.4.11 single-header test framework
 │   ├── imgui/                   # Dear ImGui v1.91.8 (GLFW + OpenGL3 backends)
 │   └── stb/                     # stb_image.h for test textures
 ├── shaders/
 │   ├── screen.vert/frag         # Virtual screen rendering + hover highlight
 │   └── cursor.vert/frag         # Cursor overlay
-├── tests/                       # (empty, tests not yet implemented)
+├── tests/                       # Unit tests (doctest): sensor fusion, layouts, raycasting
 └── src/
     ├── main.cpp                  # Entry point
     ├── app/
@@ -146,6 +148,7 @@ xr_ar_space/
     │   └── InputInjector.h/cpp   # Click/scroll injection into captured windows
     ├── display/
     │   ├── DisplayDetector.h/cpp # Monitor enumeration, XREAL EDID matching
+    │   ├── VirtualDisplay.h/cpp  # Virtual desktop extension (IDD driver)
     │   └── WindowPositioner.h/cpp # Borderless fullscreen positioning
     └── util/
         ├── Log.h                 # Timestamped console logging
