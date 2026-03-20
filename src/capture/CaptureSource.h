@@ -2,6 +2,11 @@
 
 #include <cstdint>
 
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <Windows.h>
+
 namespace xr {
 
 // Abstract interface for capture sources.
@@ -18,6 +23,9 @@ public:
     // Returns nullptr if no frame is available. Caller must call unlockFrame() after use.
     virtual const uint8_t* lockFrame(int& width, int& height) = 0;
     virtual void unlockFrame() = 0;
+
+    // Get the source window handle (for click injection).
+    virtual HWND hwnd() const = 0;
 };
 
 } // namespace xr

@@ -10,6 +10,8 @@
 #include "interaction/Raycaster.h"
 #include "display/DisplayDetector.h"
 #include "display/WindowPositioner.h"
+#include "ui/UIManager.h"
+#include "ui/WindowPicker.h"
 #include "util/Timer.h"
 
 #include <GLFW/glfw3.h>
@@ -45,6 +47,8 @@ private:
     static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
     static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
     static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
+    void startDrag(float mx, float my);
+    HitResult raycastAtMouse(float mx, float my);
     static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos);
     static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset);
 
@@ -62,6 +66,10 @@ private:
     glm::vec2 m_lastMousePos{0.0f};
     float m_dragDepth = 0.0f;
 
+    // Click injection state
+    bool m_clickingIntoWindow = false;  // Left-click held on a captured window
+    int m_clickTargetScreen = -1;       // Which screen received the click
+
     // Capture state
     std::vector<std::unique_ptr<CaptureTexture>> m_captureTextures;
     std::vector<WindowInfo> m_windowList;
@@ -76,6 +84,10 @@ private:
     // Display detection
     std::vector<DisplayInfo> m_displays;
     std::optional<DisplayInfo> m_xrealDisplay;
+
+    // UI
+    UIManager m_ui;
+    WindowPicker m_windowPicker;
 
     // Recovery
     float m_headTrackingRetryTimer = 0.0f;

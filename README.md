@@ -8,8 +8,8 @@ Rebuilt from an Electron/TypeScript prototype for lower latency, direct USB HID 
 
 | Component | Technology |
 |-----------|-----------|
-| Graphics | OpenGL 4.6 Core (GLFW + GLAD + GLM) |
-| Window Capture | GDI PrintWindow (30 FPS), with planned WinRT upgrade |
+| Graphics | OpenGL 4.6 Core (GLFW + GLAD + GLM), Dear ImGui overlay |
+| Window Capture | WinRT Graphics.Capture (primary) / GDI PrintWindow (fallback) |
 | USB HID | hidapi (winapi backend) |
 | Build | CMake 3.24+ with FetchContent |
 | Language | C++20, MSVC |
@@ -72,10 +72,11 @@ build\Release\xr_ar_space.exe
 | Tab | Cycle selected screen |
 | L | Cycle layout (Arc/Grid/Stack/Single) |
 | R | Reset camera orientation |
-| W | Refresh window list |
+| W | Toggle window picker UI |
 | H | Toggle head tracking |
 | F | Toggle borderless fullscreen on XREAL (or primary) |
 | D | Refresh display list |
+| P | Pin/unpin selected screen (prevents dragging) |
 | S | Save current config |
 | 1-9 | Assign window to selected screen |
 | Escape | Exit |
@@ -85,9 +86,12 @@ build\Release\xr_ar_space.exe
 | Input | Action |
 |-------|--------|
 | Hover | Highlight screen under cursor |
-| Click + Drag | Move selected screen |
-| Scroll Wheel | Zoom in/out |
-| Double-click | Zoom to screen |
+| Left-click | Click into captured window (injected) |
+| Right-click | Right-click into captured window |
+| Ctrl + Left-click drag | Move frame position |
+| Middle mouse drag | Move frame position |
+| Scroll over window | Scroll forwarded to captured window |
+| Ctrl + Scroll | Zoom in/out (change screen distance) |
 
 ## Project Structure
 
@@ -99,6 +103,7 @@ xr_ar_space/
 │   │   ├── include/glad/gl.h
 │   │   ├── include/KHR/khrplatform.h
 │   │   └── src/gl.c
+│   ├── imgui/                   # Dear ImGui v1.91.8 (GLFW + OpenGL3 backends)
 │   └── stb/                     # stb_image.h for test textures
 ├── shaders/
 │   ├── screen.vert/frag         # Virtual screen rendering + hover highlight
@@ -118,7 +123,8 @@ xr_ar_space/
     │   ├── CaptureSource.h       # Capture source descriptor
     │   ├── CaptureTexture.h/cpp  # GPU texture from captured frames
     │   ├── FrameBuffer.h         # Frame buffering
-    │   ├── WindowCapturer.h/cpp  # GDI PrintWindow capture (30 FPS)
+    │   ├── WindowCapturer.h/cpp  # GDI PrintWindow capture (fallback)
+    │   ├── WinRTCapturer.h/cpp  # WinRT Graphics.Capture (primary)
     │   └── WindowEnumerator.h/cpp # EnumWindows window listing
     ├── hid/
     │   ├── ImuProtocol.h         # XREAL constants, packet format, CRC
@@ -127,9 +133,13 @@ xr_ar_space/
     │   ├── SensorFusion.h        # Complementary filter (alpha=0.98)
     │   └── HeadTracker.h/cpp     # Thread-safe 3DoF orientation
     ├── layout/
-    │   └── LayoutManager.h       # Arc/Grid/Stack/Single layout computation
+    │   └── LayoutManager.h       # Arc/Grid/Stack/Single layouts + animated transitions
+    ├── ui/
+    │   ├── UIManager.h/cpp       # Dear ImGui lifecycle (init, frame, shutdown)
+    │   └── WindowPicker.h/cpp    # Window selection panel with filtering
     ├── interaction/
-    │   └── Raycaster.h           # Mouse ray-quad intersection, screen picking
+    │   ├── Raycaster.h           # Mouse ray-quad intersection, screen picking
+    │   └── InputInjector.h/cpp   # Click/scroll injection into captured windows
     ├── display/
     │   ├── DisplayDetector.h/cpp # Monitor enumeration, XREAL EDID matching
     │   └── WindowPositioner.h/cpp # Borderless fullscreen positioning
@@ -157,10 +167,11 @@ xr_ar_space/
 ### Phase 2: Window Capture — COMPLETE
 
 - [x] `WindowEnumerator`: Window listing via EnumWindows
-- [x] `WindowCapturer`: GDI PrintWindow capture at 30 FPS
+- [x] `WinRTCapturer`: WinRT Graphics.Capture (primary, Windows 10 1903+)
+- [x] `WindowCapturer`: GDI PrintWindow capture (automatic fallback)
 - [x] `CaptureTexture`: GPU texture upload from captured frames
 - [x] `FrameBuffer`: Frame buffering between capture and render threads
-- [ ] **Planned upgrade**: WinRT GraphicsCapture + `WGL_NV_DX_interop2` for zero-copy GPU path
+- [ ] **Planned**: `WGL_NV_DX_interop2` zero-copy GPU path (skip CPU readback)
 
 ### Phase 3: USB HID + Head Tracking — COMPLETE
 
@@ -172,14 +183,17 @@ xr_ar_space/
 ### Phase 4: Layout System — COMPLETE
 
 - [x] `LayoutManager`: Arc, Grid, Stack, Single layout computation
-- [ ] Animated transitions (lerp/slerp over ~300ms)
+- [x] Animated transitions (300ms Hermite smoothstep easing)
 
 ### Phase 5: Interaction — COMPLETE
 
 - [x] `Raycaster`: Mouse unproject to world ray, ray-quad intersection
-- [x] Drag-to-reposition selected screens
+- [x] Drag-to-reposition (Ctrl+click or middle mouse)
 - [x] Scroll wheel zoom, double-click zoom
 - [x] Visual feedback: hover highlight in shader
+- [x] Frame pinning (P key to lock position)
+- [x] `InputInjector`: Click/right-click/scroll injection into captured windows
+- [x] Mouse move forwarding during click-hold
 
 ### Phase 6: Display Detection + Polish — COMPLETE
 
@@ -187,11 +201,15 @@ xr_ar_space/
 - [x] `WindowPositioner`: Borderless fullscreen on XREAL display with windowed restore
 - [x] `ConfigFile`: JSON config load/save, persists all settings on exit
 - [x] Error recovery: auto-retry head tracking (5s interval), dead capture cleanup
-- [ ] Click injection (forward mouse events to captured windows)
 
 ## Architecture
 
-### Capture Pipeline (current)
+### Capture Pipeline (WinRT, current)
+```
+WinRT GraphicsCapture -> ID3D11Texture2D -> D3D11 Map (staging) -> CPU -> glTexSubImage2D -> VirtualScreen quad
+```
+
+### Capture Pipeline (GDI fallback)
 ```
 GDI PrintWindow -> CPU bitmap -> glTexSubImage2D -> GLuint texture -> VirtualScreen quad
 ```
@@ -215,9 +233,9 @@ ImuReader thread -> HeadTracker -> SensorFusion -> Camera orientation
 
 ## Next Steps
 
-1. **Click injection** — forward mouse clicks to captured windows for full interactivity
-2. **WinRT capture upgrade** — zero-copy GPU path via `WGL_NV_DX_interop2` for lower latency
-3. **Animated layout transitions** — smooth lerp/slerp when switching layouts (~300ms)
+1. **Window Picker UI** — ImGui overlay for visual window selection (replace 1-9 keys)
+2. **Zero-copy GPU interop** — `WGL_NV_DX_interop2` to skip CPU readback in capture pipeline
+3. **Keyboard injection** — forward keyboard input to focused captured window
 4. **Tests** — unit tests for sensor fusion, layouts, raycasting
 5. **6DoF tracking** — positional tracking beyond 3DoF rotation
 

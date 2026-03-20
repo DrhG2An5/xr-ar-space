@@ -36,6 +36,10 @@ public:
     void setHovered(bool h) { m_hovered = h; }
     bool hovered() const { return m_hovered; }
 
+    void setPinned(bool p) { m_pinned = p; }
+    bool pinned() const { return m_pinned; }
+    void togglePinned() { m_pinned = !m_pinned; }
+
     void setOpacity(float opacity) { m_opacity = opacity; }
     float opacity() const { return m_opacity; }
 
@@ -61,6 +65,7 @@ private:
 
     bool m_selected = false;
     bool m_hovered = false;
+    bool m_pinned = false;
     float m_opacity = 1.0f;
 };
 

@@ -5,8 +5,17 @@
 
 namespace xr {
 
+struct EnumContext {
+    std::vector<WindowInfo>* list;
+    HWND excludeHwnd;
+};
+
 static BOOL CALLBACK enumCallback(HWND hwnd, LPARAM lParam) {
-    auto* list = reinterpret_cast<std::vector<WindowInfo>*>(lParam);
+    auto* ctx = reinterpret_cast<EnumContext*>(lParam);
+    auto* list = ctx->list;
+
+    // Skip excluded window (the app itself)
+    if (ctx->excludeHwnd && hwnd == ctx->excludeHwnd) return TRUE;
 
     // Skip invisible windows
     if (!IsWindowVisible(hwnd)) return TRUE;
@@ -32,6 +41,11 @@ static BOOL CALLBACK enumCallback(HWND hwnd, LPARAM lParam) {
     GetWindowTextA(hwnd, title.data(), len + 1);
     title.resize(len);
 
+    // Get window class name
+    char classBuf[256] = {};
+    GetClassNameA(hwnd, classBuf, sizeof(classBuf));
+    std::string className(classBuf);
+
     // Get client rect dimensions
     RECT rect{};
     GetClientRect(hwnd, &rect);
@@ -41,13 +55,14 @@ static BOOL CALLBACK enumCallback(HWND hwnd, LPARAM lParam) {
     // Skip zero-size windows
     if (w <= 0 || h <= 0) return TRUE;
 
-    list->push_back({hwnd, std::move(title), w, h});
+    list->push_back({hwnd, std::move(title), std::move(className), w, h});
     return TRUE;
 }
 
-std::vector<WindowInfo> WindowEnumerator::enumerate() {
+std::vector<WindowInfo> WindowEnumerator::enumerate(HWND excludeHwnd) {
     std::vector<WindowInfo> windows;
-    EnumWindows(enumCallback, reinterpret_cast<LPARAM>(&windows));
+    EnumContext ctx{&windows, excludeHwnd};
+    EnumWindows(enumCallback, reinterpret_cast<LPARAM>(&ctx));
     return windows;
 }
 
@@ -56,7 +71,7 @@ void WindowEnumerator::printList(const std::vector<WindowInfo>& windows) {
     for (size_t i = 0; i < windows.size(); ++i) {
         Log::info("  [{}] {}x{} - {}", i + 1, windows[i].width, windows[i].height, windows[i].title);
     }
-    Log::info("Press 1-9 to assign a window to the selected screen. W to refresh.");
+    Log::info("Press W to open window picker, or 1-9 for quick assign.");
 }
 
 } // namespace xr
