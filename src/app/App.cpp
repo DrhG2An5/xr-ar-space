@@ -77,9 +77,9 @@ bool App::init(const Config& config) {
     m_headTracker = std::make_unique<HeadTracker>();
     if (m_headTracker->start()) {
         m_headTrackingEnabled = true;
-        Log::info("Head tracking enabled (press H to toggle)");
+        Log::info("Head tracking enabled (press Ctrl+H to toggle)");
     } else {
-        Log::info("No XREAL device — use arrow keys for camera (press H to retry)");
+        Log::info("No XREAL device — use arrow keys for camera (Ctrl+H to retry)");
     }
 
     // Detect displays and look for XREAL glasses
@@ -87,11 +87,11 @@ bool App::init(const Config& config) {
     DisplayDetector::printList(m_displays);
     m_xrealDisplay = DisplayDetector::findXreal();
     if (m_xrealDisplay) {
-        Log::info("XREAL display found: {} ({}x{}) — press F to go fullscreen",
+        Log::info("XREAL display found: {} ({}x{}) — Ctrl+F for fullscreen",
                   m_xrealDisplay->monitorName.empty() ? m_xrealDisplay->deviceName : m_xrealDisplay->monitorName,
                   m_xrealDisplay->width, m_xrealDisplay->height);
     } else {
-        Log::info("No XREAL display detected — press D to refresh displays, F for fullscreen on primary");
+        Log::info("No XREAL display detected — Ctrl+D to refresh, Ctrl+F for fullscreen");
     }
 
     // Initialize ImGui overlay
@@ -184,6 +184,7 @@ void App::run() {
         m_windowPicker.setSelectedScreen(m_selectedScreen);
         m_windowPicker.draw();
         m_settingsPanel.draw();
+        m_helpOverlay.draw();
         m_ui.endFrame();
 
         glfwSwapBuffers(m_window);
@@ -337,7 +338,7 @@ void App::startDrag(float mx, float my) {
 
     // Don't drag pinned screens
     if (screen->pinned()) {
-        Log::info("Screen {} is pinned (press P to unpin)", m_hoveredScreen + 1);
+        Log::info("Screen {} is pinned (Ctrl+P to unpin)", m_hoveredScreen + 1);
         return;
     }
 
@@ -363,22 +364,34 @@ void App::framebufferSizeCallback(GLFWwindow* window, int width, int height) {
     }
 }
 
-void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action, int /*mods*/) {
+void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action, int mods) {
     auto* app = static_cast<App*>(glfwGetWindowUserPointer(window));
     if (!app) return;
 
     // Let ImGui consume keyboard input when it has focus
     if (app->m_ui.wantCaptureKeyboard()) return;
 
-    // Escape always exits keyboard forwarding first
-    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS && app->m_keyboardForwarding) {
-        app->m_keyboardForwarding = false;
-        Log::info("Keyboard forwarding OFF");
+    bool ctrlHeld = (mods & GLFW_MOD_CONTROL) != 0;
+
+    // Escape always exits keyboard forwarding first, then closes app
+    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+        if (app->m_keyboardForwarding) {
+            app->m_keyboardForwarding = false;
+            Log::info("Keyboard forwarding OFF");
+        } else {
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
+        }
         return;
     }
 
-    // K toggles keyboard forwarding
-    if (key == GLFW_KEY_K && action == GLFW_PRESS && !app->m_keyboardForwarding) {
+    // F1: toggle help overlay (no modifier needed — function keys don't conflict with typing)
+    if (key == GLFW_KEY_F1 && action == GLFW_PRESS) {
+        app->m_helpOverlay.toggle();
+        return;
+    }
+
+    // Ctrl+K toggles keyboard forwarding
+    if (key == GLFW_KEY_K && action == GLFW_PRESS && ctrlHeld && !app->m_keyboardForwarding) {
         int idx = app->m_selectedScreen;
         if (idx >= 0 && idx < static_cast<int>(app->m_captureTextures.size())) {
             auto* src = app->m_captureTextures[idx]->source();
@@ -392,7 +405,7 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
         return;
     }
 
-    // When forwarding, send keys to captured window
+    // When forwarding, send keys to captured window (no Ctrl required — passthrough mode)
     if (app->m_keyboardForwarding) {
         int idx = app->m_selectedScreen;
         if (idx >= 0 && idx < static_cast<int>(app->m_captureTextures.size())) {
@@ -409,18 +422,17 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
         return;
     }
 
+    // All remaining hotkeys require Ctrl modifier
+    if (!ctrlHeld) return;
+
     if (action == GLFW_PRESS) {
         switch (key) {
-            case GLFW_KEY_ESCAPE:
-                glfwSetWindowShouldClose(window, GLFW_TRUE);
-                break;
             case GLFW_KEY_TAB:
                 // Cycle selected screen
                 if (!app->m_screens.empty()) {
                     app->m_screens[app->m_selectedScreen]->setSelected(false);
                     app->m_selectedScreen = (app->m_selectedScreen + 1) % static_cast<int>(app->m_screens.size());
                     app->m_screens[app->m_selectedScreen]->setSelected(true);
-                    // Re-apply layout (Stack/Single need to update for new selection)
                     app->m_layoutManager.apply(app->m_screens, app->m_config, app->m_selectedScreen);
                 }
                 break;
@@ -436,7 +448,7 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
                 app->m_renderer.camera().setPitch(0.0f);
                 break;
             case GLFW_KEY_W:
-                // Toggle window picker (also refreshes list when opening)
+                // Toggle window picker
                 app->m_windowPicker.toggle();
                 if (app->m_windowPicker.isVisible()) {
                     app->refreshWindowList();
@@ -448,7 +460,6 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
                     app->m_headTrackingEnabled = false;
                     Log::info("Head tracking disabled — using keyboard control");
                 } else {
-                    // Try to (re)start if not active
                     if (!app->m_headTracker) {
                         app->m_headTracker = std::make_unique<HeadTracker>();
                     }
@@ -464,11 +475,10 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
                 }
                 break;
             case GLFW_KEY_F:
-                // Toggle fullscreen on XREAL display (or primary if no XREAL)
+                // Toggle fullscreen
                 if (app->m_xrealDisplay) {
                     WindowPositioner::toggle(window, *app->m_xrealDisplay);
                 } else if (!app->m_displays.empty()) {
-                    // Fall back to primary display
                     for (const auto& d : app->m_displays) {
                         if (d.isPrimary) {
                             WindowPositioner::toggle(window, d);
@@ -516,7 +526,7 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
                               scr->pinned() ? "pinned" : "unpinned");
                 }
                 break;
-            // Number keys 1-9: assign window to selected screen
+            // Ctrl+1-9: assign window to selected screen
             case GLFW_KEY_1: case GLFW_KEY_2: case GLFW_KEY_3:
             case GLFW_KEY_4: case GLFW_KEY_5: case GLFW_KEY_6:
             case GLFW_KEY_7: case GLFW_KEY_8: case GLFW_KEY_9:

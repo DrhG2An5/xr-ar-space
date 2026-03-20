@@ -14,6 +14,7 @@
 #include "ui/UIManager.h"
 #include "ui/WindowPicker.h"
 #include "ui/SettingsPanel.h"
+#include "ui/HelpOverlay.h"
 #include "util/Timer.h"
 
 #include <GLFW/glfw3.h>
@@ -97,6 +98,7 @@ private:
     UIManager m_ui;
     WindowPicker m_windowPicker;
     SettingsPanel m_settingsPanel;
+    HelpOverlay m_helpOverlay;
 
     // Recovery
     float m_headTrackingRetryTimer = 0.0f;
