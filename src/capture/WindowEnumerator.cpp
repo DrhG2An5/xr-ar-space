@@ -66,6 +66,54 @@ std::vector<WindowInfo> WindowEnumerator::enumerate(HWND excludeHwnd) {
     return windows;
 }
 
+bool WindowEnumerator::captureThumbnail(WindowInfo& info, int maxWidth) {
+    if (!IsWindow(info.hwnd)) return false;
+
+    RECT rect{};
+    GetClientRect(info.hwnd, &rect);
+    int srcW = rect.right - rect.left;
+    int srcH = rect.bottom - rect.top;
+    if (srcW <= 0 || srcH <= 0) return false;
+
+    // Scale to fit maxWidth while preserving aspect ratio
+    int thumbW = maxWidth;
+    int thumbH = static_cast<int>(static_cast<float>(srcH) / srcW * thumbW);
+    if (thumbH <= 0) thumbH = 1;
+
+    // Capture full window into a memory DC, then StretchBlt to thumbnail size
+    HDC hdcWin = GetDC(info.hwnd);
+    if (!hdcWin) return false;
+
+    HDC hdcMem = CreateCompatibleDC(hdcWin);
+    HBITMAP hBmp = CreateCompatibleBitmap(hdcWin, thumbW, thumbH);
+    HBITMAP hOld = static_cast<HBITMAP>(SelectObject(hdcMem, hBmp));
+
+    SetStretchBltMode(hdcMem, HALFTONE);
+    StretchBlt(hdcMem, 0, 0, thumbW, thumbH, hdcWin, 0, 0, srcW, srcH, SRCCOPY);
+
+    // Read pixels
+    BITMAPINFOHEADER bi{};
+    bi.biSize = sizeof(bi);
+    bi.biWidth = thumbW;
+    bi.biHeight = -thumbH; // top-down
+    bi.biPlanes = 1;
+    bi.biBitCount = 32;
+    bi.biCompression = BI_RGB;
+
+    info.thumbnail.resize(thumbW * thumbH * 4);
+    GetDIBits(hdcMem, hBmp, 0, thumbH, info.thumbnail.data(),
+              reinterpret_cast<BITMAPINFO*>(&bi), DIB_RGB_COLORS);
+    info.thumbnailW = thumbW;
+    info.thumbnailH = thumbH;
+
+    SelectObject(hdcMem, hOld);
+    DeleteObject(hBmp);
+    DeleteDC(hdcMem);
+    ReleaseDC(info.hwnd, hdcWin);
+
+    return true;
+}
+
 void WindowEnumerator::printList(const std::vector<WindowInfo>& windows) {
     Log::info("=== Available Windows ===");
     for (size_t i = 0; i < windows.size(); ++i) {

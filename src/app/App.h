@@ -12,6 +12,7 @@
 #include "display/WindowPositioner.h"
 #include "ui/UIManager.h"
 #include "ui/WindowPicker.h"
+#include "ui/SettingsPanel.h"
 #include "util/Timer.h"
 
 #include <GLFW/glfw3.h>
@@ -51,6 +52,7 @@ private:
     HitResult raycastAtMouse(float mx, float my);
     static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos);
     static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset);
+    static void charCallback(GLFWwindow* window, unsigned int codepoint);
 
     GLFWwindow* m_window = nullptr;
     Config m_config;
@@ -63,12 +65,16 @@ private:
     // Mouse interaction
     int m_hoveredScreen = -1;
     bool m_dragging = false;
+    bool m_resizing = false;
     glm::vec2 m_lastMousePos{0.0f};
     float m_dragDepth = 0.0f;
 
     // Click injection state
     bool m_clickingIntoWindow = false;  // Left-click held on a captured window
     int m_clickTargetScreen = -1;       // Which screen received the click
+
+    // Keyboard forwarding: when true, keystrokes go to the focused captured window
+    bool m_keyboardForwarding = false;
 
     // Capture state
     std::vector<std::unique_ptr<CaptureTexture>> m_captureTextures;
@@ -88,6 +94,7 @@ private:
     // UI
     UIManager m_ui;
     WindowPicker m_windowPicker;
+    SettingsPanel m_settingsPanel;
 
     // Recovery
     float m_headTrackingRetryTimer = 0.0f;

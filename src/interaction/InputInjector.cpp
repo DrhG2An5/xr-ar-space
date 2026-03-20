@@ -67,4 +67,23 @@ void InputInjector::sendScroll(HWND hwnd, float u, float v, float delta) {
     PostMessage(hwnd, WM_MOUSEWHEEL, wp, lp);
 }
 
+void InputInjector::sendKeyDown(HWND hwnd, UINT vkCode) {
+    if (!IsWindow(hwnd)) return;
+    UINT scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
+    LPARAM lParam = 1 | (scanCode << 16);
+    PostMessage(hwnd, WM_KEYDOWN, vkCode, lParam);
+}
+
+void InputInjector::sendKeyUp(HWND hwnd, UINT vkCode) {
+    if (!IsWindow(hwnd)) return;
+    UINT scanCode = MapVirtualKey(vkCode, MAPVK_VK_TO_VSC);
+    LPARAM lParam = 1 | (scanCode << 16) | (1 << 30) | (1 << 31);
+    PostMessage(hwnd, WM_KEYUP, vkCode, lParam);
+}
+
+void InputInjector::sendChar(HWND hwnd, wchar_t ch) {
+    if (!IsWindow(hwnd)) return;
+    PostMessageW(hwnd, WM_CHAR, ch, 0);
+}
+
 } // namespace xr

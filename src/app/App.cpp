@@ -51,6 +51,7 @@ bool App::init(const Config& config) {
     glfwSetMouseButtonCallback(m_window, mouseButtonCallback);
     glfwSetCursorPosCallback(m_window, cursorPosCallback);
     glfwSetScrollCallback(m_window, scrollCallback);
+    glfwSetCharCallback(m_window, charCallback);
 
     // Initialize GLAD (GLAD2 API)
     int version = gladLoadGL(glfwGetProcAddress);
@@ -101,6 +102,19 @@ bool App::init(const Config& config) {
 
     // Configure window picker
     m_windowPicker.setOnAssign([this](int idx) { assignWindowToScreen(idx); });
+
+    // Configure settings panel
+    m_settingsPanel.setConfig(&m_config);
+    m_settingsPanel.setOnLayoutChange([this]() {
+        m_layoutManager.apply(m_screens, m_config, m_selectedScreen);
+        float aspect = static_cast<float>(m_config.windowWidth) / m_config.windowHeight;
+        m_renderer.camera().setPerspective(m_config.fovDegrees, aspect, m_config.nearPlane, m_config.farPlane);
+        // Apply curvature and size to all screens
+        for (auto& s : m_screens) {
+            s->setSize(m_config.screenWidth, m_config.screenHeight);
+            s->setCurvature(m_config.screenCurvature);
+        }
+    });
 
     m_running = true;
     Log::info("App initialized successfully");
@@ -169,6 +183,7 @@ void App::run() {
         m_windowPicker.setScreenCount(static_cast<int>(m_screens.size()));
         m_windowPicker.setSelectedScreen(m_selectedScreen);
         m_windowPicker.draw();
+        m_settingsPanel.draw();
         m_ui.endFrame();
 
         glfwSwapBuffers(m_window);
@@ -354,6 +369,45 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
     // Let ImGui consume keyboard input when it has focus
     if (app->m_ui.wantCaptureKeyboard()) return;
 
+    // Escape always exits keyboard forwarding first
+    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS && app->m_keyboardForwarding) {
+        app->m_keyboardForwarding = false;
+        Log::info("Keyboard forwarding OFF");
+        return;
+    }
+
+    // K toggles keyboard forwarding
+    if (key == GLFW_KEY_K && action == GLFW_PRESS && !app->m_keyboardForwarding) {
+        int idx = app->m_selectedScreen;
+        if (idx >= 0 && idx < static_cast<int>(app->m_captureTextures.size())) {
+            auto* src = app->m_captureTextures[idx]->source();
+            if (src && IsWindow(src->hwnd())) {
+                app->m_keyboardForwarding = true;
+                Log::info("Keyboard forwarding ON (screen {}) — press Escape to stop", idx + 1);
+                return;
+            }
+        }
+        Log::warn("No captured window on selected screen — cannot forward keyboard");
+        return;
+    }
+
+    // When forwarding, send keys to captured window
+    if (app->m_keyboardForwarding) {
+        int idx = app->m_selectedScreen;
+        if (idx >= 0 && idx < static_cast<int>(app->m_captureTextures.size())) {
+            auto* src = app->m_captureTextures[idx]->source();
+            if (src && IsWindow(src->hwnd())) {
+                UINT vk = static_cast<UINT>(key);
+                if (action == GLFW_PRESS || action == GLFW_REPEAT) {
+                    InputInjector::sendKeyDown(src->hwnd(), vk);
+                } else if (action == GLFW_RELEASE) {
+                    InputInjector::sendKeyUp(src->hwnd(), vk);
+                }
+            }
+        }
+        return;
+    }
+
     if (action == GLFW_PRESS) {
         switch (key) {
             case GLFW_KEY_ESCAPE:
@@ -425,6 +479,10 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
             case GLFW_KEY_S:
                 // Save current config
                 ConfigFile::save(app->m_config);
+                break;
+            case GLFW_KEY_G:
+                // Toggle settings panel
+                app->m_settingsPanel.toggle();
                 break;
             case GLFW_KEY_D:
                 // Refresh display list
@@ -506,9 +564,20 @@ void App::mouseButtonCallback(GLFWwindow* window, int button, int action, int mo
     // --- Left mouse button ---
     if (button == GLFW_MOUSE_BUTTON_LEFT) {
         bool ctrlHeld = (mods & GLFW_MOD_CONTROL) != 0;
+        bool shiftHeld = (mods & GLFW_MOD_SHIFT) != 0;
 
         if (action == GLFW_PRESS) {
-            if (ctrlHeld) {
+            if (shiftHeld && app->m_hoveredScreen >= 0) {
+                // Shift + Left-click: resize the screen
+                if (app->m_selectedScreen >= 0 &&
+                    app->m_selectedScreen < static_cast<int>(app->m_screens.size())) {
+                    app->m_screens[app->m_selectedScreen]->setSelected(false);
+                }
+                app->m_selectedScreen = app->m_hoveredScreen;
+                app->m_screens[app->m_selectedScreen]->setSelected(true);
+                app->m_resizing = true;
+                app->m_lastMousePos = glm::vec2(mx, my);
+            } else if (ctrlHeld) {
                 // Ctrl + Left-click: drag the frame
                 app->startDrag(mx, my);
             } else if (app->m_hoveredScreen >= 0) {
@@ -535,8 +604,9 @@ void App::mouseButtonCallback(GLFWwindow* window, int button, int action, int mo
                 }
             }
         } else if (action == GLFW_RELEASE) {
-            // Release drag
+            // Release drag / resize
             app->m_dragging = false;
+            app->m_resizing = false;
 
             // Release click injection
             if (app->m_clickingIntoWindow && app->m_clickTargetScreen >= 0 &&
@@ -581,7 +651,17 @@ void App::cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
     float mx = static_cast<float>(xpos);
     float my = static_cast<float>(ypos);
 
-    if (app->m_dragging && app->m_selectedScreen >= 0 &&
+    if (app->m_resizing && app->m_selectedScreen >= 0 &&
+        app->m_selectedScreen < static_cast<int>(app->m_screens.size())) {
+        // Resize: horizontal mouse delta changes width, vertical changes height
+        float dx = mx - app->m_lastMousePos.x;
+        float dy = my - app->m_lastMousePos.y;
+        float sensitivity = 0.005f;
+        auto& screen = app->m_screens[app->m_selectedScreen];
+        screen->setSize(screen->width() + dx * sensitivity,
+                        screen->height() - dy * sensitivity); // minus because screen Y is inverted
+        app->m_lastMousePos = glm::vec2(mx, my);
+    } else if (app->m_dragging && app->m_selectedScreen >= 0 &&
         app->m_selectedScreen < static_cast<int>(app->m_screens.size())) {
         // Compute world-space positions for old and new mouse positions
         int width, height;
@@ -668,6 +748,23 @@ void App::scrollCallback(GLFWwindow* window, double /*xoffset*/, double yoffset)
         app->m_config.screenDistance = glm::clamp(
             app->m_config.screenDistance, app->m_config.minDistance, app->m_config.maxDistance);
         app->m_layoutManager.apply(app->m_screens, app->m_config, app->m_selectedScreen);
+    }
+}
+
+void App::charCallback(GLFWwindow* window, unsigned int codepoint) {
+    auto* app = static_cast<App*>(glfwGetWindowUserPointer(window));
+    if (!app) return;
+
+    if (app->m_ui.wantCaptureKeyboard()) return;
+
+    if (app->m_keyboardForwarding) {
+        int idx = app->m_selectedScreen;
+        if (idx >= 0 && idx < static_cast<int>(app->m_captureTextures.size())) {
+            auto* src = app->m_captureTextures[idx]->source();
+            if (src && IsWindow(src->hwnd())) {
+                InputInjector::sendChar(src->hwnd(), static_cast<wchar_t>(codepoint));
+            }
+        }
     }
 }
 

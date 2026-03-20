@@ -48,6 +48,12 @@ public:
     float width() const { return m_width; }
     float height() const { return m_height; }
 
+    void setSize(float w, float h);
+    void resize(float dw, float dh);
+
+    void setCurvature(float curvature) { m_curvature = curvature; rebuildMesh(); }
+    float curvature() const { return m_curvature; }
+
 private:
     void cleanup();
 
@@ -55,9 +61,14 @@ private:
     GLuint m_vbo = 0;
     GLuint m_ebo = 0;
     GLuint m_texture = 0;
+    int m_indexCount = 6;
+
+    void rebuildMesh();
 
     float m_width = 1.6f;
     float m_height = 0.9f;
+    float m_curvature = 0.0f; // 0 = flat, 1 = full curve
+    int m_segments = 1; // mesh subdivisions (horizontal)
 
     glm::vec3 m_position{0.0f};
     glm::vec3 m_rotation{0.0f};
