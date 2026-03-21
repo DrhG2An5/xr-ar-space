@@ -31,6 +31,9 @@ public:
     // Called from the main thread.
     void drainSamples(std::deque<ImuSample>& out);
 
+    // Drain all queued button events. Called from the main thread.
+    void drainButtonEvents(std::deque<GlassesButtonEvent>& out);
+
 private:
     void readLoop();
 
@@ -41,6 +44,10 @@ private:
     // Thread-safe sample queue
     std::mutex m_queueMutex;
     std::deque<ImuSample> m_queue;
+
+    // Thread-safe button event queue
+    std::mutex m_buttonMutex;
+    std::deque<GlassesButtonEvent> m_buttonQueue;
 
     // HID device handle — protected by m_deviceMutex for thread-safe access
     std::mutex m_deviceMutex;

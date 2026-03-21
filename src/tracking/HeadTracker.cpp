@@ -96,4 +96,10 @@ void HeadTracker::reset() {
     m_lastTimestamp_us = 0;
 }
 
+void HeadTracker::drainButtonEvents(std::deque<GlassesButtonEvent>& out) {
+    if (m_reader) {
+        m_reader->drainButtonEvents(out);
+    }
+}
+
 } // namespace xr

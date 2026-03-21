@@ -77,8 +77,9 @@ build\Release\xr_ar_space.exe
 | F | Toggle borderless fullscreen on XREAL (or primary) |
 | D | Refresh display list |
 | G | Toggle settings panel |
-| K | Toggle keyboard forwarding to captured window (SendInput) |
+| K | Toggle keyboard forwarding to captured window |
 | Z | Zoom / unzoom selected screen |
+| T | Toggle transparent background (see desktop through) |
 | V | Toggle virtual display extension |
 | P | Pin/unpin selected screen (prevents dragging) |
 | S | Save current config |
@@ -206,6 +207,8 @@ xr_ar_space/
 - [x] Unicode character injection via `KEYEVENTF_UNICODE`
 - [x] Mouse move forwarding during click-hold
 - [x] Per-window zoom: Ctrl+Z toggles 2× zoom on selected screen with smooth animation
+- [x] Transparent background: Ctrl+T or XREAL shade button toggles see-through background
+- [x] XREAL glasses button event detection (shade toggle, brightness)
 
 ### Phase 6: Display Detection + Polish — COMPLETE
 

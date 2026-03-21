@@ -56,6 +56,7 @@ public:
             helpEntry("Ctrl+F",       "Toggle fullscreen");
             helpEntry("Ctrl+D",       "Refresh display list");
             helpEntry("Ctrl+V",       "Toggle virtual display");
+            helpEntry("Ctrl+T",       "Toggle transparent background");
             helpEntry("Arrow keys",   "Rotate camera");
             helpEntry("Ctrl+Scroll",  "Zoom (change screen distance)");
 

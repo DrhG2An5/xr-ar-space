@@ -148,6 +148,12 @@ void ImuReader::drainSamples(std::deque<ImuSample>& out) {
     m_queue.clear();
 }
 
+void ImuReader::drainButtonEvents(std::deque<GlassesButtonEvent>& out) {
+    std::lock_guard lock(m_buttonMutex);
+    out.swap(m_buttonQueue);
+    m_buttonQueue.clear();
+}
+
 void ImuReader::readLoop() {
     // Take a local copy of the device pointer under lock
     hid_device* dev = nullptr;
@@ -177,6 +183,7 @@ void ImuReader::readLoop() {
             continue;
         }
 
+        // Try parsing as IMU data first, then as button event
         auto sample = ImuProtocol::parseImuReport(buf, static_cast<size_t>(bytesRead));
         if (sample) {
             std::lock_guard lock(m_queueMutex);
@@ -185,6 +192,16 @@ void ImuReader::readLoop() {
             // Prevent unbounded queue growth if main thread stalls
             while (m_queue.size() > 500) {
                 m_queue.pop_front();
+            }
+        } else {
+            auto btnEvt = ImuProtocol::parseButtonEvent(buf, static_cast<size_t>(bytesRead));
+            if (btnEvt && btnEvt->event != GlassesEvent::None) {
+                std::lock_guard lock(m_buttonMutex);
+                m_buttonQueue.push_back(*btnEvt);
+
+                while (m_buttonQueue.size() > 32) {
+                    m_buttonQueue.pop_front();
+                }
             }
         }
     }

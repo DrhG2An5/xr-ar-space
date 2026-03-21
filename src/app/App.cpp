@@ -8,6 +8,8 @@
 
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
+#include <string>
+#include <deque>
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
 
@@ -30,6 +32,7 @@ bool App::init(const Config& config) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_SAMPLES, 4);
+    glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);
 
     m_window = glfwCreateWindow(
         config.windowWidth, config.windowHeight,
@@ -158,6 +161,19 @@ void App::run() {
             }
         }
 
+        // Process glasses button events (shade toggle → transparent background)
+        if (m_headTracker) {
+            std::deque<GlassesButtonEvent> btnEvents;
+            m_headTracker->drainButtonEvents(btnEvents);
+            for (const auto& evt : btnEvents) {
+                if (evt.event == GlassesEvent::ShadeToggle) {
+                    m_renderer.toggleTransparentBackground();
+                    Log::info("Shade button → background: {}",
+                              m_renderer.transparentBackground() ? "transparent" : "opaque");
+                }
+            }
+        }
+
         // Animate layout transitions
         m_layoutManager.update(m_screens, dt);
 
@@ -211,14 +227,26 @@ void App::run() {
         // Update status bar text
         if (m_keyboardForwarding) {
             m_helpOverlay.setStatus("Keyboard Forwarding ON  |  Escape to stop");
-        } else if (m_zoomedIn && m_zoomedScreen >= 0) {
-            char buf[64];
-            snprintf(buf, sizeof(buf), "Zoomed: Screen %d  |  Ctrl+Z to unzoom", m_zoomedScreen + 1);
-            m_helpOverlay.setStatus(buf);
-        } else if (m_headTrackingEnabled) {
-            m_helpOverlay.setStatus("Head Tracking ON");
         } else {
-            m_helpOverlay.clearStatus();
+            std::string status;
+            if (m_renderer.transparentBackground()) {
+                status += "Transparent BG";
+            }
+            if (m_zoomedIn && m_zoomedScreen >= 0) {
+                if (!status.empty()) status += "  |  ";
+                char buf[48];
+                snprintf(buf, sizeof(buf), "Zoomed: Screen %d", m_zoomedScreen + 1);
+                status += buf;
+            }
+            if (m_headTrackingEnabled) {
+                if (!status.empty()) status += "  |  ";
+                status += "Head Tracking ON";
+            }
+            if (!status.empty()) {
+                m_helpOverlay.setStatus(status.c_str());
+            } else {
+                m_helpOverlay.clearStatus();
+            }
         }
 
         // ImGui overlay (rendered on top of 3D scene)
@@ -534,6 +562,12 @@ void App::keyCallback(GLFWwindow* window, int key, int /*scancode*/, int action,
             case GLFW_KEY_S:
                 // Save current config
                 ConfigFile::save(app->m_config);
+                break;
+            case GLFW_KEY_T:
+                // Toggle transparent background
+                app->m_renderer.toggleTransparentBackground();
+                Log::info("Background: {}",
+                          app->m_renderer.transparentBackground() ? "transparent" : "opaque");
                 break;
             case GLFW_KEY_G:
                 // Toggle settings panel

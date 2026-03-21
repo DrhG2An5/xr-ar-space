@@ -14,6 +14,20 @@ struct ImuSample {
     glm::vec3 accel{0.0f};    // m/s^2 (remapped axes)
 };
 
+// Button/event types reported by XREAL glasses
+enum class GlassesEvent : uint8_t {
+    None = 0,
+    ShadeToggle,    // Electrochromic shade button pressed
+    BrightnessUp,
+    BrightnessDown,
+    Unknown
+};
+
+struct GlassesButtonEvent {
+    GlassesEvent event = GlassesEvent::None;
+    uint8_t value = 0; // Button-specific value (0/1 for toggle, level for brightness)
+};
+
 namespace ImuProtocol {
 
 // XREAL USB identifiers
@@ -29,6 +43,7 @@ inline constexpr int kImuInterfaceUltra    = 2; // Ultra
 inline constexpr int kPacketSize  = 64;
 inline constexpr uint8_t kMarker  = 0xAA;
 inline constexpr uint8_t kCmdImu  = 0x19;
+inline constexpr uint8_t kCmdButton = 0x17; // Button/event reports
 
 inline constexpr float kGravity   = 9.81f;
 inline constexpr float kDegToRad  = 3.14159265358979323846f / 180.0f;
@@ -180,6 +195,40 @@ inline std::optional<ImuSample> parseImuReport(const uint8_t* pkt, size_t len) {
     sample.accel.z =  static_cast<float>(rawAccelY) * accelScale;
 
     return sample;
+}
+
+// Parse a 64-byte HID packet as a button/event report.
+// Returns std::nullopt if this is not a button event packet.
+inline std::optional<GlassesButtonEvent> parseButtonEvent(const uint8_t* pkt, size_t len) {
+    if (len < kPacketSize) return std::nullopt;
+    if (pkt[0] != kMarker) return std::nullopt;
+    if (pkt[7] != kCmdButton) return std::nullopt;
+
+    // Button data at byte 8
+    const uint8_t* d = pkt + 8;
+    GlassesButtonEvent evt;
+
+    // Button ID in first data byte, value in second
+    uint8_t buttonId = d[0];
+    evt.value = d[1];
+
+    switch (buttonId) {
+        case 0x01: // Shade/dimming toggle
+        case 0x02: // Some models use 0x02 for shade
+            evt.event = GlassesEvent::ShadeToggle;
+            break;
+        case 0x03:
+            evt.event = GlassesEvent::BrightnessUp;
+            break;
+        case 0x04:
+            evt.event = GlassesEvent::BrightnessDown;
+            break;
+        default:
+            evt.event = GlassesEvent::Unknown;
+            break;
+    }
+
+    return evt;
 }
 
 } // namespace ImuProtocol

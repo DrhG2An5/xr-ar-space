@@ -33,7 +33,11 @@ void Renderer::shutdown() {
 }
 
 void Renderer::beginFrame() {
-    glClearColor(0.05f, 0.05f, 0.08f, 1.0f);
+    if (m_transparentBg) {
+        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    } else {
+        glClearColor(0.05f, 0.05f, 0.08f, 1.0f);
+    }
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }
 
