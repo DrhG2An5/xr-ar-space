@@ -4,6 +4,8 @@
 #include <SetupAPI.h>
 #include <devguid.h>
 #include <initguid.h>
+#include <future>
+#include <chrono>
 
 // IDD Sample Driver device interface GUID
 // This matches the GUID used by common IDD virtual display drivers
@@ -77,6 +79,13 @@ bool VirtualDisplay::create(int width, int height, int refreshRate) {
     m_info.height = height;
     m_info.refreshRate = refreshRate;
 
+    // Safety check: verify an IDD driver exists before attempting anything
+    if (!isDriverInstalled()) {
+        Log::warn("No virtual display driver installed — Ctrl+V requires an IDD driver.");
+        Log::info("Tip: Install https://github.com/ge9/IddSampleDriver for virtual display support.");
+        return false;
+    }
+
     // First, try to find an already-active virtual monitor
     if (findVirtualMonitor()) {
         Log::info("Found existing virtual display: {} ({}x{})",
@@ -85,7 +94,8 @@ bool VirtualDisplay::create(int width, int height, int refreshRate) {
         return true;
     }
 
-    // Try to enable an IDD monitor
+    // Try to enable an IDD monitor (with timeout guard)
+    Log::info("Attempting to enable IDD virtual display...");
     if (enableIddMonitor(width, height, refreshRate)) {
         Log::info("Enabled IDD virtual display: {} ({}x{})",
                   m_deviceName, width, height);
@@ -93,9 +103,8 @@ bool VirtualDisplay::create(int width, int height, int refreshRate) {
         return true;
     }
 
-    Log::warn("No virtual display driver found. Install an IDD driver "
-              "(e.g., IddSampleDriver) to use virtual desktop extension.");
-    Log::info("Tip: https://github.com/ge9/IddSampleDriver — free virtual display driver for Windows");
+    Log::warn("Virtual display driver found but could not enable a monitor. "
+              "The driver may need to be re-installed or the system restarted.");
     return false;
 }
 
@@ -133,51 +142,60 @@ bool VirtualDisplay::findVirtualMonitor() {
 }
 
 bool VirtualDisplay::enableIddMonitor(int width, int height, int refreshRate) {
-    // Try to change the display settings for an existing but disabled virtual monitor
-    DISPLAY_DEVICEA dd{};
-    dd.cb = sizeof(dd);
+    // Run the display settings change with a timeout to prevent app freeze.
+    // ChangeDisplaySettingsExA can hang indefinitely with broken IDD drivers.
+    auto task = std::async(std::launch::async, [&]() -> bool {
+        DISPLAY_DEVICEA dd{};
+        dd.cb = sizeof(dd);
 
-    for (DWORD i = 0; EnumDisplayDevicesA(nullptr, i, &dd, 0); ++i) {
-        std::string desc(dd.DeviceString);
-        if (desc.find("IddSample") == std::string::npos &&
-            desc.find("Virtual Display") == std::string::npos &&
-            desc.find("Indirect Display") == std::string::npos) {
-            continue;
-        }
-
-        // Found a virtual display adapter — try to set its mode
-        DEVMODEA dm{};
-        dm.dmSize = sizeof(dm);
-        dm.dmPelsWidth = width;
-        dm.dmPelsHeight = height;
-        dm.dmDisplayFrequency = refreshRate;
-        dm.dmBitsPerPel = 32;
-        dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY | DM_BITSPERPEL;
-
-        LONG result = ChangeDisplaySettingsExA(dd.DeviceName, &dm,
-                                                nullptr, CDS_UPDATEREGISTRY | CDS_NORESET, nullptr);
-
-        if (result == DISP_CHANGE_SUCCESSFUL) {
-            // Apply the change
-            ChangeDisplaySettingsExA(nullptr, nullptr, nullptr, 0, nullptr);
-
-            m_deviceName = dd.DeviceName;
-
-            // Re-read the actual rect
-            DEVMODEA actualDm{};
-            actualDm.dmSize = sizeof(actualDm);
-            if (EnumDisplaySettingsA(dd.DeviceName, ENUM_CURRENT_SETTINGS, &actualDm)) {
-                m_desktopRect.left = actualDm.dmPosition.x;
-                m_desktopRect.top = actualDm.dmPosition.y;
-                m_desktopRect.right = actualDm.dmPosition.x + width;
-                m_desktopRect.bottom = actualDm.dmPosition.y + height;
+        for (DWORD i = 0; EnumDisplayDevicesA(nullptr, i, &dd, 0); ++i) {
+            std::string desc(dd.DeviceString);
+            if (desc.find("IddSample") == std::string::npos &&
+                desc.find("Virtual Display") == std::string::npos &&
+                desc.find("Indirect Display") == std::string::npos) {
+                continue;
             }
 
-            return true;
+            DEVMODEA dm{};
+            dm.dmSize = sizeof(dm);
+            dm.dmPelsWidth = width;
+            dm.dmPelsHeight = height;
+            dm.dmDisplayFrequency = refreshRate;
+            dm.dmBitsPerPel = 32;
+            dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY | DM_BITSPERPEL;
+
+            LONG result = ChangeDisplaySettingsExA(dd.DeviceName, &dm,
+                                                    nullptr, CDS_UPDATEREGISTRY | CDS_NORESET, nullptr);
+
+            if (result == DISP_CHANGE_SUCCESSFUL) {
+                ChangeDisplaySettingsExA(nullptr, nullptr, nullptr, 0, nullptr);
+
+                m_deviceName = dd.DeviceName;
+
+                DEVMODEA actualDm{};
+                actualDm.dmSize = sizeof(actualDm);
+                if (EnumDisplaySettingsA(dd.DeviceName, ENUM_CURRENT_SETTINGS, &actualDm)) {
+                    m_desktopRect.left = actualDm.dmPosition.x;
+                    m_desktopRect.top = actualDm.dmPosition.y;
+                    m_desktopRect.right = actualDm.dmPosition.x + width;
+                    m_desktopRect.bottom = actualDm.dmPosition.y + height;
+                }
+
+                return true;
+            }
         }
+
+        return false;
+    });
+
+    // Wait at most 5 seconds — if it takes longer, the driver is broken
+    auto status = task.wait_for(std::chrono::seconds(5));
+    if (status == std::future_status::timeout) {
+        Log::error("Virtual display operation timed out (5s) — IDD driver may be broken");
+        return false;
     }
 
-    return false;
+    return task.get();
 }
 
 } // namespace xr

@@ -78,6 +78,8 @@ build\Release\xr_ar_space.exe
 | D | Refresh display list |
 | G | Toggle settings panel |
 | K | Toggle keyboard forwarding to captured window |
+| Z | Zoom / unzoom selected screen |
+| T | Toggle transparent background (see desktop through) |
 | V | Toggle virtual display extension |
 | P | Pin/unpin selected screen (prevents dragging) |
 | S | Save current config |
@@ -199,8 +201,14 @@ xr_ar_space/
 - [x] Scroll wheel zoom, double-click zoom
 - [x] Visual feedback: hover highlight in shader
 - [x] Frame pinning (P key to lock position)
-- [x] `InputInjector`: Click/right-click/scroll injection into captured windows
+- [x] `InputInjector`: Click/right-click/scroll injection into captured windows (PostMessage)
+- [x] Keyboard forwarding via `SetForegroundWindow` + `SendInput` (works with WebStorm, terminals, etc.)
+- [x] Full GLFW-to-Windows VK keycode mapping (all keys, numpad, punctuation, modifiers)
+- [x] Unicode character injection via `KEYEVENTF_UNICODE`
 - [x] Mouse move forwarding during click-hold
+- [x] Per-window zoom: Ctrl+Z toggles 2× zoom on selected screen with smooth animation
+- [x] Transparent background: Ctrl+T or XREAL shade button toggles see-through background
+- [x] XREAL glasses button event detection (shade toggle, brightness)
 
 ### Phase 6: Display Detection + Polish — COMPLETE
 
@@ -208,6 +216,7 @@ xr_ar_space/
 - [x] `WindowPositioner`: Borderless fullscreen on XREAL display with windowed restore
 - [x] `ConfigFile`: JSON config load/save, persists all settings on exit
 - [x] Error recovery: auto-retry head tracking (5s interval), dead capture cleanup
+- [x] Head tracking reconnection fixes: ref-counted HIDAPI init, proper state reset, thread-safe device handle, timestamp jump guard
 
 ## Architecture
 
@@ -240,11 +249,10 @@ ImuReader thread -> HeadTracker -> SensorFusion -> Camera orientation
 
 ## Next Steps
 
-1. **Window Picker UI** — ImGui overlay for visual window selection (replace 1-9 keys)
-2. **Zero-copy GPU interop** — `WGL_NV_DX_interop2` to skip CPU readback in capture pipeline
-3. **Keyboard injection** — forward keyboard input to focused captured window
-4. **Tests** — unit tests for sensor fusion, layouts, raycasting
-5. **6DoF tracking** — positional tracking beyond 3DoF rotation
+1. **Zero-copy GPU interop** — `WGL_NV_DX_interop2` to skip CPU readback in capture pipeline
+2. **SendInput mouse injection** — replace PostMessage mouse events with SendInput for proper drag/resize in target windows (splitters, sidebars)
+3. **6DoF tracking** — positional tracking beyond 3DoF rotation
+4. **Cross-platform** — Linux/macOS support
 
 ## References
 

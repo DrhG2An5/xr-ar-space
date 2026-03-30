@@ -10,11 +10,23 @@ HeadTracker::~HeadTracker() {
 }
 
 bool HeadTracker::start() {
-    if (m_started) return true;
+    // Always allow restart — don't early-return based on m_started.
+    // If the reader exists but isn't running (disconnected), clean it up first.
+    if (m_reader && !m_reader->isRunning()) {
+        m_reader->stop();
+        m_reader.reset();
+        m_started = false;
+    }
+
+    // Already running — nothing to do
+    if (m_started && m_reader && m_reader->isRunning()) {
+        return true;
+    }
 
     m_reader = std::make_unique<ImuReader>();
     if (!m_reader->start()) {
         m_reader.reset();
+        m_started = false;
         return false;
     }
 
@@ -27,15 +39,12 @@ bool HeadTracker::start() {
 }
 
 void HeadTracker::stop() {
-    if (!m_started) return;
-
     if (m_reader) {
         m_reader->stop();
         m_reader.reset();
     }
 
     m_started = false;
-    Log::info("Head tracking stopped");
 }
 
 void HeadTracker::update() {
@@ -44,6 +53,7 @@ void HeadTracker::update() {
     // Check if device disconnected
     if (!m_reader->isRunning()) {
         Log::warn("XREAL device disconnected — head tracking disabled");
+        m_reader->stop();
         m_reader.reset();
         m_started = false;
         return;
@@ -59,7 +69,13 @@ void HeadTracker::update() {
             // First sample — use a nominal dt
             dt = 1.0f / 60.0f;
         } else {
-            dt = static_cast<float>(s.timestamp_us - m_lastTimestamp_us) / 1'000'000.0f;
+            int64_t diff = static_cast<int64_t>(s.timestamp_us) - static_cast<int64_t>(m_lastTimestamp_us);
+            // Guard against bogus timestamps (negative or huge jumps)
+            if (diff <= 0 || diff > 1'000'000) {
+                dt = 1.0f / 60.0f;
+            } else {
+                dt = static_cast<float>(diff) / 1'000'000.0f;
+            }
         }
         m_lastTimestamp_us = s.timestamp_us;
 
@@ -78,6 +94,12 @@ bool HeadTracker::isActive() const {
 void HeadTracker::reset() {
     m_fusion.reset();
     m_lastTimestamp_us = 0;
+}
+
+void HeadTracker::drainButtonEvents(std::deque<GlassesButtonEvent>& out) {
+    if (m_reader) {
+        m_reader->drainButtonEvents(out);
+    }
 }
 
 } // namespace xr

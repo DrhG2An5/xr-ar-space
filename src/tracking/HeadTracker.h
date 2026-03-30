@@ -32,6 +32,9 @@ public:
 
     void reset();
 
+    // Drain any button events from the glasses (shade toggle, brightness, etc.)
+    void drainButtonEvents(std::deque<GlassesButtonEvent>& out);
+
 private:
     std::unique_ptr<ImuReader> m_reader;
     SensorFusion m_fusion;
